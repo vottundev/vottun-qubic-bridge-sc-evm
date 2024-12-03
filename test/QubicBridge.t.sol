@@ -24,9 +24,9 @@ contract QubicBridgeTest is Test {
 
         vm.startPrank(admin);
 
-        token.addMinter(address(bob));
-        token.addMinter(address(bridge));
-        token.removeMinter(address(bob));
+        token.addManager(address(bob));
+        token.addManager(address(bridge));
+        token.removeManager(address(bob));
 
         bridge.addManager(manager);
 

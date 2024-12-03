@@ -14,7 +14,7 @@ contract QubicDeployScript is Script {
         QubicToken token = new QubicToken();
         QubicBridge bridge = new QubicBridge(address(token));
 
-        token.addMinter(address(bridge));
+        token.addManager(address(bridge));
         bridge.addManager(msg.sender);
 
         vm.stopBroadcast();

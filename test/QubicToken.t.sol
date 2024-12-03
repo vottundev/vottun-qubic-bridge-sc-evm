@@ -17,7 +17,7 @@ contract QubicTokenTest is Test {
 
     function setUp() public {
         token = new QubicToken();
-        token.addMinter(alice);
+        token.addManager(alice);
     }
 
     function test_MintTokens() public {

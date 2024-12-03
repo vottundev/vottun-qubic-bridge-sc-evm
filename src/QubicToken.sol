@@ -5,20 +5,20 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 contract QubicToken is ERC20 {
     address public admin;
-    mapping(address => bool) internal isMinter;
-    address[] public minters;
+    mapping(address => bool) internal isManager;
+    address[] public managers;
 
     event Minted(address indexed to, uint256 amount);
     event Burned(address indexed from, uint256 amount);
     event AdminUpdated(address indexed oldAdmin, address indexed newAdmin);
-    event MinterAdded(address indexed minter);
-    event MinterRemoved(address indexed minter);
+    event ManagerAdded(address indexed manager);
+    event ManagerRemoved(address indexed manager);
 
     error Unauthorized();
     error InvalidAddress();
     error InvalidAmount();
-    error MinterAlreadyAdded();
-    error MinterNotAdded();
+    error ManagerAlreadyAdded();
+    error ManagerNotAdded();
 
     modifier onlyAdmin() {
         if (msg.sender != admin) {
@@ -27,8 +27,8 @@ contract QubicToken is ERC20 {
         _;
     }
 
-    modifier onlyMinter() {
-        if (!isMinter[msg.sender]) {
+    modifier onlyManager() {
+        if (!isManager[msg.sender]) {
             revert Unauthorized();
         }
         _;
@@ -51,38 +51,38 @@ contract QubicToken is ERC20 {
     }
 
     /**
-     * @notice Adds a new minter
-     * @param minter Address of the new minter
+     * @notice Adds a new manager
+    * @param manager Address of the new manager
      */
-    function addMinter(address minter) external onlyAdmin {
-        if (isMinter[minter]) {
-            revert MinterAlreadyAdded();
+    function addManager(address manager) external onlyAdmin {
+        if (isManager[manager]) {
+            revert ManagerAlreadyAdded();
         }
-        isMinter[minter] = true;
-        minters.push(minter);
-        emit MinterAdded(minter);
+        isManager[manager] = true;
+        managers.push(manager);
+        emit ManagerAdded(manager);
     }
 
     /**
-     * @notice Removes a minter
-     * @param minter Address of the minter to remove
+     * @notice Removes a manager
+     * @param manager Address of the manager to remove
      */
-    function removeMinter(address minter) external onlyAdmin {
-        if (!isMinter[minter]) {
-            revert MinterNotAdded();
+    function removeManager(address manager) external onlyAdmin {
+        if (!isManager[manager]) {
+            revert ManagerNotAdded();
         }
 
-        for (uint256 i = 0; i < minters.length; i++) {
-            if (minters[i] == minter) {
-                minters[i] = minters[minters.length - 1];
-                minters.pop();
+        for (uint256 i = 0; i < managers.length; i++) {
+            if (managers[i] == manager) {
+                managers[i] = managers[managers.length - 1];
+                managers.pop();
                 break;
             }
         }
 
-        delete isMinter[minter];
+        delete isManager[manager];
 
-        emit MinterRemoved(minter);
+        emit ManagerRemoved(manager);
     }
 
     /**
@@ -90,7 +90,7 @@ contract QubicToken is ERC20 {
      * @param to Address to mint tokens to
      * @param amount Amount of tokens to mint
      */
-    function mint(address to, uint256 amount) external onlyMinter {
+    function mint(address to, uint256 amount) external onlyManager {
         if (amount == 0) {
             revert InvalidAmount();
         }
@@ -103,7 +103,7 @@ contract QubicToken is ERC20 {
      * @param from Address to burn tokens from
      * @param amount Amount of tokens to burn
      */
-    function burn(address from, uint256 amount) external onlyMinter {
+    function burn(address from, uint256 amount) external onlyManager {
         if (amount == 0) {
             revert InvalidAmount();
         }
