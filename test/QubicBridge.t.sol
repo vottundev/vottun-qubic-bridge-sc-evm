@@ -52,12 +52,21 @@ contract QubicBridgeTest is Test {
         assertEq(token.balanceOf(originAccount), 1000 - amount);
         assertEq(token.balanceOf(address(bridge)), amount);
 
+        QubicBridge.PullOrder memory order = bridge.getOrder(createdOrderId);
+        assertEq(order.originAccount, originAccount);
+        assertEq(order.destinationAccount, destinationAccount);
+        assertEq(order.amount, amount);
+        assertEq(order.done, false);
+
         // manager authorizes the order
         vm.startPrank(manager);
         vm.expectEmit(address(bridge));
         emit QubicBridge.OrderConfirmed(createdOrderId, originAccount, destinationAccount, amount);
         bridge.confirmOrder(createdOrderId);
         assertEq(token.balanceOf(address(bridge)), 0);
+
+        order = bridge.getOrder(createdOrderId);
+        assertEq(order.done, true);
 
         // Manager fails to confirm the order again
         vm.expectRevert(QubicBridge.AlreadyConfirmed.selector, address(bridge));

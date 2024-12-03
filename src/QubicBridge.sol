@@ -242,4 +242,17 @@ contract QubicBridge {
 
         emit OrderExecuted(originOrderId, originAccount, destinationAccount, amount);
     }
+
+    /**
+     * @notice Gets a pull order
+     * @param orderId Order ID
+     * @return Pull order
+     */
+    function getOrder(uint256 orderId) external view returns (PullOrder memory) {
+        if (orderId == 0 || orderId > pullOrders.length) {
+            revert InvalidOrderId();
+        }
+
+        return pullOrders[orderId - 1];
+    }
 }
