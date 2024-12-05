@@ -209,7 +209,7 @@ contract QubicBridge {
         }
 
         delete pullOrders[orderId - 1];
-        QubicToken(token).transfer(msg.sender, amount);
+        QubicToken(token).transfer(order.originAccount, amount);
 
         emit OrderReverted(orderId, order.originAccount, order.destinationAccount, amount);
     }

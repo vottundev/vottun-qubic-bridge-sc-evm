@@ -80,6 +80,7 @@ contract QubicBridgeTest is Test {
     function test_revertOrder() public {
         uint256 amount = 100;
         address originAccount = alice;
+        uint256 initialOriginBalance = token.balanceOf(originAccount);
         string memory destinationAccount = queen;
         uint256 expectedOrderId = 1;
 
@@ -92,7 +93,7 @@ contract QubicBridgeTest is Test {
         uint256 createdOrderId = bridge.createOrder(destinationAccount, amount);
 
         assertEq(createdOrderId, expectedOrderId);
-        assertEq(token.balanceOf(originAccount), 1000 - amount);
+        assertEq(token.balanceOf(originAccount), initialOriginBalance - amount);
         assertEq(token.balanceOf(address(bridge)), amount);
 
         // manager reverts the order
@@ -101,6 +102,7 @@ contract QubicBridgeTest is Test {
         emit QubicBridge.OrderReverted(createdOrderId, originAccount, destinationAccount, amount);
         bridge.revertOrder(createdOrderId);
         assertEq(token.balanceOf(address(bridge)), 0);
+        assertEq(token.balanceOf(originAccount), initialOriginBalance);
 
         // Manager fails to revert the order again
         vm.expectRevert(QubicBridge.InvalidOrderId.selector, address(bridge));
