@@ -14,20 +14,37 @@ contract QubicTokenTest is Test {
 
     address alice = makeAddr("Alice");
     address bob = makeAddr("Bob");
+    address admin = makeAddr("admin");
+    address operator = makeAddr("operator");
 
     function setUp() public {
+        vm.startPrank(admin);
         token = new QubicToken();
-        token.addManager(alice);
+
+        // Add operator
+        token.addOperator(operator);
+    }
+
+    function test_AddRemoveOperator() public {
+        vm.startPrank(admin);
+
+        vm.expectEmit(address(token));
+        emit QubicToken.OperatorAdded(bob);
+        assertEq(token.addOperator(bob), true);
+
+        vm.expectEmit(address(token));
+        emit QubicToken.OperatorRemoved(bob);
+        assertEq(token.removeOperator(bob), true);
     }
 
     function test_MintTokens() public {
-        vm.startPrank(alice);
+        vm.startPrank(operator);
         token.mint(bob, 100);
         assertEq(token.balanceOf(bob), 100);
     }
 
     function test_BurnTokens() public {
-        vm.startPrank(alice);
+        vm.startPrank(operator);
         token.mint(bob, 100);
         token.burn(bob, 100);
         assertEq(token.balanceOf(bob), 0);

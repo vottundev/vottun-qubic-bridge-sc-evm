@@ -11,27 +11,51 @@ contract QubicBridgeTest is Test {
 
     address admin = makeAddr("admin");
     address manager = makeAddr("manager");
+    address operator = makeAddr("operator");
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
     string queen = "FRDMFRRRCQTOUBOKAEJZEPLIOSVBQKYRCWILPZSJJCWNDYVXIMSAUVQFIXOM";
 
     function setUp() public {
+        vm.startPrank(admin);
+
         token = new QubicToken();
         bridge = new QubicBridge(address(token));
 
-        token.setAdmin(address(admin));
-        bridge.setAdmin(admin);
+        // admin adds bridge manager and token operator
+        assertEq(bridge.addManager(manager), true);
+        assertEq(token.addOperator(address(bridge)), true);
 
-        vm.startPrank(admin);
-
-        token.addManager(address(bob));
-        token.addManager(address(bridge));
-        token.removeManager(address(bob));
-
-        bridge.addManager(manager);
+        // bridge manager adds bridge operator
+        vm.startPrank(manager);
+        assertEq(bridge.addOperator(operator), true);
 
         deal(address(token), alice, 1000);
         deal(address(token), bob, 1000);
+    }
+
+    function test_AddRemoveManager() public {
+        vm.startPrank(admin);
+
+        vm.expectEmit(address(bridge));
+        emit QubicBridge.ManagerAdded(bob);
+        assertEq(bridge.addManager(bob), true);
+
+        vm.expectEmit(address(bridge));
+        emit QubicBridge.ManagerRemoved(bob);
+        assertEq(bridge.removeManager(bob), true);
+    }
+
+    function test_AddRemoveOperator() public {
+        vm.startPrank(manager);
+
+        vm.expectEmit(address(bridge));
+        emit QubicBridge.OperatorAdded(bob);
+        assertEq(bridge.addOperator(bob), true);
+
+        vm.expectEmit(address(bridge));
+        emit QubicBridge.OperatorRemoved(bob);
+        assertEq(bridge.removeOperator(bob), true);
     }
 
     function test_createOrder() public {
@@ -57,8 +81,8 @@ contract QubicBridgeTest is Test {
         assertEq(order.amount, amount);
         assertEq(order.done, false);
 
-        // manager authorizes the order
-        vm.startPrank(manager);
+        // operator authorizes the order
+        vm.startPrank(operator);
         vm.expectEmit(address(bridge));
         emit QubicBridge.OrderConfirmed(expectedOrderId, originAccount, destinationAccount, amount);
         bridge.confirmOrder(expectedOrderId);
@@ -67,11 +91,11 @@ contract QubicBridgeTest is Test {
         order = bridge.getOrder(expectedOrderId);
         assertEq(order.done, true);
 
-        // Manager fails to confirm the order again
+        // operator fails to confirm the order again
         vm.expectRevert(QubicBridge.AlreadyConfirmed.selector, address(bridge));
         bridge.confirmOrder(expectedOrderId);
 
-        // Manager fails to revert the order
+        // operator fails to revert the order
         vm.expectRevert(QubicBridge.AlreadyConfirmed.selector, address(bridge));
         bridge.revertOrder(expectedOrderId);
     }
@@ -95,19 +119,19 @@ contract QubicBridgeTest is Test {
         assertEq(token.balanceOf(originAccount), initialOriginBalance - amount);
         assertEq(token.balanceOf(address(bridge)), amount);
 
-        // manager reverts the order
-        vm.startPrank(manager);
+        // operator reverts the order
+        vm.startPrank(operator);
         vm.expectEmit(address(bridge));
         emit QubicBridge.OrderReverted(expectedOrderId, originAccount, destinationAccount, amount);
         bridge.revertOrder(expectedOrderId);
         assertEq(token.balanceOf(address(bridge)), 0);
         assertEq(token.balanceOf(originAccount), initialOriginBalance);
 
-        // Manager fails to revert the order again
+        // operator fails to revert the order again
         vm.expectRevert(QubicBridge.InvalidOrderId.selector, address(bridge));
         bridge.revertOrder(expectedOrderId);
 
-        // Manager fails to confirm the order
+        // operator fails to confirm the order
         vm.expectRevert(QubicBridge.InvalidOrderId.selector, address(bridge));
         bridge.confirmOrder(expectedOrderId);
     }
@@ -118,7 +142,7 @@ contract QubicBridgeTest is Test {
         string memory originAccount = queen;
         address destinationAccount = bob;
 
-        vm.startPrank(manager);
+        vm.startPrank(operator);
 
         vm.expectEmit(address(bridge));
         emit QubicBridge.OrderExecuted(originOrderId, originAccount, destinationAccount, amount);
@@ -132,18 +156,18 @@ contract QubicBridgeTest is Test {
         address destinationAccount = bob;
         uint256 amount = 100;
 
-        // invalid manager
-        vm.startPrank(destinationAccount);
+        // invalid operator
+        vm.startPrank(bob);
         vm.expectRevert(address(bridge)); //AccessControl.AccessControlUnauthorizedAccount.signature, address(bridge));
         bridge.executeOrder(orderId, originAccount, destinationAccount, amount);
 
         // invalid amount
-        vm.startPrank(manager);
+        vm.startPrank(operator);
         vm.expectRevert(QubicBridge.InvalidAmount.selector, address(bridge));
         bridge.executeOrder(orderId, originAccount, destinationAccount, 0);
 
         // invalid destination account
-        vm.startPrank(manager);
+        vm.startPrank(operator);
         vm.expectRevert(QubicBridge.InvalidDestinationAccount.selector, address(bridge));
         bridge.executeOrder(orderId, originAccount, address(0), amount);
     }

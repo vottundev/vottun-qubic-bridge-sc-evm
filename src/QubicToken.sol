@@ -1,88 +1,56 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-contract QubicToken is ERC20 {
-    address public admin;
-    mapping(address => bool) internal isManager;
-    address[] public managers;
+contract QubicToken is ERC20, AccessControlEnumerable {
+    bytes32 constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
+    uint8 constant DECIMALS = 0;
 
+    event AdminUpdated(address indexed oldAdmin, address indexed newAdmin);
+    event OperatorAdded(address indexed operator);
+    event OperatorRemoved(address indexed operator);
     event Minted(address indexed to, uint256 amount);
     event Burned(address indexed from, uint256 amount);
-    event AdminUpdated(address indexed oldAdmin, address indexed newAdmin);
-    event ManagerAdded(address indexed manager);
-    event ManagerRemoved(address indexed manager);
 
-    error Unauthorized();
-    error InvalidAddress();
     error InvalidAmount();
-    error ManagerAlreadyAdded();
-    error ManagerNotAdded();
-
-    modifier onlyAdmin() {
-        if (msg.sender != admin) {
-            revert Unauthorized();
-        }
-        _;
-    }
-
-    modifier onlyManager() {
-        if (!isManager[msg.sender]) {
-            revert Unauthorized();
-        }
-        _;
-    }
 
     constructor() ERC20("Wrapped Qubic", "WQUBIC") {
-        admin = msg.sender;
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
     /**
-     * @notice Sets a new admin and revokes the previous admin's role
+     * @notice Sets the admin
      * @param newAdmin Address of the new admin
      */
-    function setAdmin(address newAdmin) external onlyAdmin {
-        if (newAdmin == address(0)) {
-            revert InvalidAddress();
-        }
-        admin = newAdmin;
-        emit AdminUpdated(msg.sender, newAdmin);
+    function setAdmin(address newAdmin) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        address admin = getRoleMember(DEFAULT_ADMIN_ROLE, 0);
+        _revokeRole(DEFAULT_ADMIN_ROLE, admin);
+        _grantRole(DEFAULT_ADMIN_ROLE, newAdmin);
+        emit AdminUpdated(admin, newAdmin);
     }
 
     /**
-     * @notice Adds a new manager
-    * @param manager Address of the new manager
+     * @notice Adds a new operator
+     * @param newOperator Address of the new operator
+     * @return True if the role was granted, false otherwise
      */
-    function addManager(address manager) external onlyAdmin {
-        if (isManager[manager]) {
-            revert ManagerAlreadyAdded();
-        }
-        isManager[manager] = true;
-        managers.push(manager);
-        emit ManagerAdded(manager);
+    function addOperator(address newOperator) external onlyRole(DEFAULT_ADMIN_ROLE) returns (bool) {
+        bool success = _grantRole(OPERATOR_ROLE, newOperator);
+        emit OperatorAdded(newOperator);
+        return success;
     }
 
     /**
-     * @notice Removes a manager
-     * @param manager Address of the manager to remove
+     * @notice Removes an operator
+     * @param operator Address of the operator to remove
+     * @return True if the role was revoked, false otherwise
      */
-    function removeManager(address manager) external onlyAdmin {
-        if (!isManager[manager]) {
-            revert ManagerNotAdded();
-        }
-
-        for (uint256 i = 0; i < managers.length; i++) {
-            if (managers[i] == manager) {
-                managers[i] = managers[managers.length - 1];
-                managers.pop();
-                break;
-            }
-        }
-
-        delete isManager[manager];
-
-        emit ManagerRemoved(manager);
+    function removeOperator(address operator) external onlyRole(DEFAULT_ADMIN_ROLE) returns (bool) {
+        bool success = _revokeRole(OPERATOR_ROLE, operator);
+        emit OperatorRemoved(operator);
+        return success;
     }
 
     /**
@@ -90,7 +58,7 @@ contract QubicToken is ERC20 {
      * @param to Address to mint tokens to
      * @param amount Amount of tokens to mint
      */
-    function mint(address to, uint256 amount) external onlyManager {
+    function mint(address to, uint256 amount) external onlyRole(OPERATOR_ROLE) {
         if (amount == 0) {
             revert InvalidAmount();
         }
@@ -103,7 +71,7 @@ contract QubicToken is ERC20 {
      * @param from Address to burn tokens from
      * @param amount Amount of tokens to burn
      */
-    function burn(address from, uint256 amount) external onlyManager {
+    function burn(address from, uint256 amount) external onlyRole(OPERATOR_ROLE) {
         if (amount == 0) {
             revert InvalidAmount();
         }
@@ -111,7 +79,27 @@ contract QubicToken is ERC20 {
         emit Burned(from, amount);
     }
 
+    /**
+     * @notice Gets the admin
+     * @return Admin address
+     */
+    function getAdmin() external view returns (address) {
+        return getRoleMember(DEFAULT_ADMIN_ROLE, 0);
+    }
+
+    /**
+     * @notice Gets the operators
+     * @return Operators
+     */
+    function getOperators() external view returns (address[] memory) {
+        return getRoleMembers(OPERATOR_ROLE);
+    }
+
+    /**
+     * @notice Gets the decimals
+     * @return Decimals
+     */
     function decimals() public pure override returns (uint8) {
-        return 0;
+        return DECIMALS;
     }
 }

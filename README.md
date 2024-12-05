@@ -1,9 +1,9 @@
 Qubic Token Bridge
 ==================
 
-`QubicToken` is an ERC20 smart contract designed to be a representation of the native Qubic token on EVM compatible networks. The minting and burning of WQUBIC tokens is controlled by the `QubicBridge` contract.
+The `QubicToken` is an ERC20 smart contract designed to be a representation of the native Qubic token on EVM compatible networks. The minting and burning of WQUBIC tokens is controlled by the `QubicBridge` contract.
 
-`QubicBridge` is an Ethereum smart contract designed to deposit and withdraw WQUBIC tokens on EVM-compatible networks. It is part of the Qubic-Ethereum Bridge, where bridge operation is coordinated by a middleware backend. It emits standard events that the backend middleware listens and reacts to.
+The `QubicBridge` is an Ethereum smart contract designed to deposit and withdraw WQUBIC tokens on EVM-compatible networks. It is part of the Qubic-Ethereum Bridge, where bridge operation is coordinated by a middleware backend. It emits standard events that the backend middleware listens and reacts to.
 
 Design considerations
 --------------------
@@ -20,19 +20,23 @@ Roles
   - `Admin`:
     - Can add and remove minters, as well as change the admin.
     - Only one admin is allowed.
-  - `Minter`:
+  - `Operator`:
     - Can mint and burn WQUBIC tokens.
-    - Multiple minters are allowed.
-    - Any bridge in operation must be added as a minter.
+    - Multiple operators are allowed.
+    - Any bridge contract in operation must be added as an operator.
 
 - `QubicBridge`
   - `Admin`:
-    - Can add and remove managers, as well as change the admin.
+    - Can add and remove managers.
+    - Can change the admin.
     - Only one admin is allowed.
   - `Manager`:
-    - Can operate the bridge to push and pull tokens.
+    - Can add and remove operators.
     - Multiple managers are allowed.
-    - Any backend in operation must be added as a manager.
+  - `Operator`:
+    - Can operate the bridge to push and pull tokens.
+    - Multiple operators are allowed.
+    - Any backend node in operation must be added as an operator.
 
 Requirements
 ------------
@@ -42,6 +46,7 @@ How to test
 ----------
 
 ```bash
+forge install
 forge test
 ```
 
