@@ -37,6 +37,36 @@ Roles
     - Multiple operators are allowed.
     - Any backend node in operation must be added as an operator.
 
+Main bridge methods
+-------------------
+
+- `createOrder`: Called by the user to create a pull order.
+  - Parameters:
+    - `destinationAccount`: Address of the destination account in Qubic.
+    - `amount`: Amount of tokens to transfer.
+  - Emits `OrderCreated` event.
+- `confirmOrder`: Called by the operator to confirm a pull order.
+  - Parameters:
+    - `orderId`: ID of the order to confirm.
+    - `feePct`: Percentage of the fee to be received by the operator.
+    - `feeRecipient`: Address of the recipient of the fee.
+  - Emits `OrderConfirmed` event.
+- `revertOrder`: Called by the operator to reject a pull order.
+  - Parameters:
+    - `orderId`: ID of the order to reject.
+    - `feePct`: Percentage of the fee to be received by the operator.
+    - `feeRecipient`: Address of the recipient of the fee.
+  - Emits `OrderReverted` event.
+- `executeOrder`: Called by the operator to execute a push order.
+  - Parameters:
+    - `originOrderId`: ID of the origin order to execute.
+    - `originAccount`: Address of the origin account in Qubic.
+    - `destinationAccount`: Address of the destination account in Ethereum.
+    - `amount`: Amount of tokens to transfer.
+    - `feePct`: Percentage of the fee to be received by the operator.
+    - `feeRecipient`: Address of the recipient of the fee.
+  - Emits `OrderExecuted` event.
+
 Transfer Fees
 -------------
 
