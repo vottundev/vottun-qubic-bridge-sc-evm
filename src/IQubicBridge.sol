@@ -42,13 +42,30 @@ interface IQubicBridge {
     function addOperator(address operator) external returns (bool);
     function removeOperator(address operator) external returns (bool);
     function createOrder(string calldata destinationAccount, uint256 amount) external;
-    function confirmOrder(uint256 orderId) external;
-    function revertOrder(uint256 orderId) external;
-    function executeOrder(uint256 originOrderId, string calldata originAccount, address destinationAccount, uint256 amount) external;
+    function confirmOrder(
+        uint256 orderId,
+        uint256 feePct,
+        address feeRecipient
+    ) external;
+    function revertOrder(
+        uint256 orderId,
+        uint256 feePct,
+        address feeRecipient
+    ) external;
+    function executeOrder(
+        uint256 originOrderId,
+        string calldata originAccount,
+        address destinationAccount,
+        uint256 amount,
+        uint256 feePct,
+        address feeRecipient
+    ) external;
 
     // Views
     function getOrder(uint256 orderId) external view returns (PullOrder memory);
     function getAdmin() external view returns (address);
     function getManagers() external view returns (address[] memory);
     function getOperators() external view returns (address[] memory);
+    function token() external view returns (address);
+    function transferFee() external view returns (uint256);
 }

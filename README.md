@@ -11,7 +11,6 @@ Design considerations
 The initial smart contracts have been implemented with a focus on simplicity and gas efficiency. Future enhancements will include:
 - Upgradeable proxy contracts
 - Multi-signature consensus mechanism
-- Configurable transfer fees
 
 Roles
 -----
@@ -37,6 +36,24 @@ Roles
     - Can operate the bridge to push and pull tokens.
     - Multiple operators are allowed.
     - Any backend node in operation must be added as an operator.
+
+Transfer Fees
+-------------
+
+The Qubic Token Bridge implements a transfer fee mechanism to cover operational costs and incentivize operators.
+
+**Base transfer fee**: The base fee is configured by the Admin and is expressed in basis points (1 basis point = 0.01%).
+
+**Operator fee percentage**: For each token transfer transaction (execute, confirm, revert), the operator can opt to receive the full fee or a part of it, allowing for fair compensation for their role in the transaction. It is expressed as a percentage of the base fee (no decimal places).
+
+The final fee is deducted from the transfer amount as follows:
+
+```
+transfer_fee = transfer_amount * base_fee/10000 * operator_fee/100 (rounded up)
+final_amount = transfer_amount - transfer_fee
+```
+
+The deducted fee is transferred to the recipient designated by the operator for that transaction, allowing for separate storage of funds.
 
 Requirements
 ------------

@@ -6,6 +6,7 @@ import "./QubicToken.sol";
 
 contract QubicBridge is AccessControlEnumerable {
     address public immutable token;
+    uint256 public baseFee;
 
     bytes32 constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
     bytes32 constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
@@ -37,6 +38,7 @@ contract QubicBridge is AccessControlEnumerable {
     event ManagerRemoved(address indexed manager);
     event OperatorAdded(address indexed operator);
     event OperatorRemoved(address indexed operator);
+    event BaseFeeUpdated(uint256 baseFee);
     event OrderCreated(
         uint256 indexed orderId, address indexed originAccount, string indexed destinationAccount, uint256 amount
     );
@@ -53,15 +55,18 @@ contract QubicBridge is AccessControlEnumerable {
     /**
      * @notice Custom Errors
      */
+    error InvalidBaseFee();
     error InvalidDestinationAccount();
     error InvalidAmount();
+    error InvalidFeePct();
     error InvalidOrderId();
     error InsufficientApproval();
     error AlreadyConfirmed();
     error AlreadyExecuted();
 
-    constructor(address _token) {
+    constructor(address _token, uint256 _baseFee) {
         token = _token;
+        baseFee = _baseFee;
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(MANAGER_ROLE, msg.sender);
     }
@@ -122,6 +127,18 @@ contract QubicBridge is AccessControlEnumerable {
     }
 
     /**
+     * @notice Sets the base fee
+     * @param _baseFee Amount of the base fee (2 decimal places)
+     */
+    function setBaseFee(uint256 _baseFee) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (_baseFee > 100 * 100) {
+            revert InvalidBaseFee();
+        }
+        baseFee = _baseFee;
+        emit BaseFeeUpdated(_baseFee);
+    }
+
+    /**
      * @notice Called by the user to initiate a transfer-out order
      * @param destinationAccount Destination account in Qubic network
      * @param amount Amount of QUBIC to send
@@ -159,8 +176,14 @@ contract QubicBridge is AccessControlEnumerable {
     /**
      * @notice Called by the operator backend to confirm a transfer-out order
      * @param orderId Order ID
+     * @param feePct Percentage of the transfer fee that the recipient will receive
+     * @param feeRecipient Address of the recipient of the transfer fee
      */
-    function confirmOrder(uint256 orderId) external onlyRole(OPERATOR_ROLE) {
+    function confirmOrder(
+        uint256 orderId,
+        uint256 feePct,
+        address feeRecipient
+    ) external onlyRole(OPERATOR_ROLE) {
         PullOrder memory order = pullOrders[orderId - 1];
         uint256 amount = uint256(order.amount);
 
@@ -171,8 +194,19 @@ contract QubicBridge is AccessControlEnumerable {
             revert AlreadyConfirmed();
         }
 
+        uint256 fee = getTransferFee(amount, feePct);
+        uint256 amountAfterFee = amount - fee;
+
+        // Mark the order done
         pullOrders[orderId - 1].done = true;
-        QubicToken(token).burn(address(this), amount);
+
+        // Transfer the fee to the recipient
+        if (fee > 0) {
+            QubicToken(token).transfer(feeRecipient, fee);
+        }
+
+        // Burn the amount after fee
+        QubicToken(token).burn(address(this), amountAfterFee);
 
         emit OrderConfirmed(orderId, order.originAccount, order.destinationAccount, amount);
     }
@@ -180,8 +214,14 @@ contract QubicBridge is AccessControlEnumerable {
     /**
      * @notice Called by the operator backend to revert a failed transfer-out order
      * @param orderId Order ID
+     * @param feePct Percentage of the transfer fee that the recipient will receive
+     * @param feeRecipient Address of the recipient of the transfer fee
      */
-    function revertOrder(uint256 orderId) external onlyRole(OPERATOR_ROLE) {
+    function revertOrder(
+        uint256 orderId,
+        uint256 feePct,
+        address feeRecipient
+    ) external onlyRole(OPERATOR_ROLE) {
         PullOrder memory order = pullOrders[orderId - 1];
         uint256 amount = uint256(order.amount);
         if (amount == 0) {
@@ -191,8 +231,19 @@ contract QubicBridge is AccessControlEnumerable {
             revert AlreadyConfirmed();
         }
 
+        // Delete the order
         delete pullOrders[orderId - 1];
-        QubicToken(token).transfer(order.originAccount, amount);
+
+        uint256 fee = getTransferFee(amount, feePct);
+        uint256 amountAfterFee = amount - fee;
+
+        // Transfer the fee to the recipient
+        if (fee > 0) {
+            QubicToken(token).transfer(feeRecipient, fee);
+        }
+
+        // Transfer the amount to the origin account
+        QubicToken(token).transfer(order.originAccount, amountAfterFee);
 
         emit OrderReverted(orderId, order.originAccount, order.destinationAccount, amount);
     }
@@ -203,27 +254,59 @@ contract QubicBridge is AccessControlEnumerable {
      * @param originAccount Origin account in the origin network
      * @param destinationAccount Destination account in this network
      * @param amount Amount of QubicToken to receive
+     * @param feePct Percentage of the transfer fee that the recipient will receive
+     * @param feeRecipient Address of the recipient of the transfer fee
      */
     function executeOrder(
         uint256 originOrderId,
         string calldata originAccount,
         address destinationAccount,
-        uint256 amount
+        uint256 amount,
+        uint256 feePct,
+        address feeRecipient
     ) external onlyRole(OPERATOR_ROLE) {
         if (destinationAccount == address(0)) {
             revert InvalidDestinationAccount();
         }
-        if (amount == 0) {
-            revert InvalidAmount();
+        if (feePct > 100) {
+            revert InvalidFeePct();
         }
         if (pushOrders[originOrderId]) {
             revert AlreadyExecuted();
         }
 
+        uint256 fee = getTransferFee(amount, feePct);
+        uint256 amountAfterFee = amount - fee;
+
+        if (amountAfterFee == 0) {
+            revert InvalidAmount();
+        }
+
+        // Mark the order as executed
         pushOrders[originOrderId] = true;
-        QubicToken(token).mint(destinationAccount, amount);
+
+        // Mint the fee to the recipient
+        if (fee > 0) {
+            QubicToken(token).mint(feeRecipient, fee);
+        }
+
+        // Mint the amount to the destination account
+        QubicToken(token).mint(destinationAccount, amountAfterFee);
 
         emit OrderExecuted(originOrderId, originAccount, destinationAccount, amount);
+    }
+
+    /**
+     * @notice Gets the fee for a particular transfer
+     * @param amount Amount of this transfer
+     * @param feePct Percentage of the fee for this transfer
+     * @return Fee
+     */
+    function getTransferFee(uint256 amount, uint256 feePct) internal view returns (uint256) {
+        // baseFee_decimals * feePct_decimals
+        uint256 DENOMINATOR = 10000 * 100;
+        // calculate rounding 1 up
+        return (amount * baseFee * feePct + DENOMINATOR - 1) / DENOMINATOR;
     }
 
     /**

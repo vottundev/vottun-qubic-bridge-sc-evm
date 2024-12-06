@@ -11,8 +11,11 @@ contract QubicDeployScript is Script {
     function run() public {
         vm.startBroadcast();
 
+        // Initial fee 2% (2 decimal places)
+        uint256 baseFee = 2 * 100;
+
         QubicToken token = new QubicToken();
-        QubicBridge bridge = new QubicBridge(address(token));
+        QubicBridge bridge = new QubicBridge(address(token), baseFee);
 
         token.addOperator(address(bridge));
         bridge.addOperator(msg.sender);
