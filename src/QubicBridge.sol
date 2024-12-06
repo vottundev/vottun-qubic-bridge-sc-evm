@@ -139,12 +139,11 @@ contract QubicBridge {
      * @notice Called by the user to initiate a transfer-out order
      * @param destinationAccount Destination account in Qubic network
      * @param amount Amount of QUBIC to send
-     * @return Order ID
      */
     function createOrder(
         string calldata destinationAccount,
         uint256 amount
-    ) external returns (uint256) {
+    ) external {
         if (bytes(destinationAccount).length != QUBIC_ACCOUNT_LENGTH) {
             revert InvalidDestinationAccount();
         }
@@ -169,8 +168,6 @@ contract QubicBridge {
         QubicToken(token).transferFrom(originAccount, address(this), amount);
 
         emit OrderCreated(orderId, originAccount, destinationAccount, amount);
-
-        return orderId;
     }
 
     /**

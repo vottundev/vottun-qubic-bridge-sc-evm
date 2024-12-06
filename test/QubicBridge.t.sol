@@ -46,13 +46,12 @@ contract QubicBridgeTest is Test {
 
         vm.expectEmit(address(bridge));
         emit QubicBridge.OrderCreated(expectedOrderId, originAccount, destinationAccount, amount);
-        uint256 createdOrderId = bridge.createOrder(destinationAccount, amount);
+        bridge.createOrder(destinationAccount, amount);
 
-        assertEq(createdOrderId, expectedOrderId);
         assertEq(token.balanceOf(originAccount), 1000 - amount);
         assertEq(token.balanceOf(address(bridge)), amount);
 
-        QubicBridge.PullOrder memory order = bridge.getOrder(createdOrderId);
+        QubicBridge.PullOrder memory order = bridge.getOrder(expectedOrderId);
         assertEq(order.originAccount, originAccount);
         assertEq(order.destinationAccount, destinationAccount);
         assertEq(order.amount, amount);
@@ -61,20 +60,20 @@ contract QubicBridgeTest is Test {
         // manager authorizes the order
         vm.startPrank(manager);
         vm.expectEmit(address(bridge));
-        emit QubicBridge.OrderConfirmed(createdOrderId, originAccount, destinationAccount, amount);
-        bridge.confirmOrder(createdOrderId);
+        emit QubicBridge.OrderConfirmed(expectedOrderId, originAccount, destinationAccount, amount);
+        bridge.confirmOrder(expectedOrderId);
         assertEq(token.balanceOf(address(bridge)), 0);
 
-        order = bridge.getOrder(createdOrderId);
+        order = bridge.getOrder(expectedOrderId);
         assertEq(order.done, true);
 
         // Manager fails to confirm the order again
         vm.expectRevert(QubicBridge.AlreadyConfirmed.selector, address(bridge));
-        bridge.confirmOrder(createdOrderId);
+        bridge.confirmOrder(expectedOrderId);
 
         // Manager fails to revert the order
         vm.expectRevert(QubicBridge.AlreadyConfirmed.selector, address(bridge));
-        bridge.revertOrder(createdOrderId);
+        bridge.revertOrder(expectedOrderId);
     }
 
     function test_revertOrder() public {
@@ -90,27 +89,27 @@ contract QubicBridgeTest is Test {
 
         vm.expectEmit(address(bridge));
         emit QubicBridge.OrderCreated(expectedOrderId, originAccount, destinationAccount, amount);
-        uint256 createdOrderId = bridge.createOrder(destinationAccount, amount);
+        bridge.createOrder(destinationAccount, amount);
 
-        assertEq(createdOrderId, expectedOrderId);
+        assertEq(expectedOrderId, expectedOrderId);
         assertEq(token.balanceOf(originAccount), initialOriginBalance - amount);
         assertEq(token.balanceOf(address(bridge)), amount);
 
         // manager reverts the order
         vm.startPrank(manager);
         vm.expectEmit(address(bridge));
-        emit QubicBridge.OrderReverted(createdOrderId, originAccount, destinationAccount, amount);
-        bridge.revertOrder(createdOrderId);
+        emit QubicBridge.OrderReverted(expectedOrderId, originAccount, destinationAccount, amount);
+        bridge.revertOrder(expectedOrderId);
         assertEq(token.balanceOf(address(bridge)), 0);
         assertEq(token.balanceOf(originAccount), initialOriginBalance);
 
         // Manager fails to revert the order again
         vm.expectRevert(QubicBridge.InvalidOrderId.selector, address(bridge));
-        bridge.revertOrder(createdOrderId);
+        bridge.revertOrder(expectedOrderId);
 
         // Manager fails to confirm the order
         vm.expectRevert(QubicBridge.InvalidOrderId.selector, address(bridge));
-        bridge.confirmOrder(createdOrderId);
+        bridge.confirmOrder(expectedOrderId);
     }
 
     function test_executeOrder() public {

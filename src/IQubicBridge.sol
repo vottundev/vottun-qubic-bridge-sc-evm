@@ -29,7 +29,7 @@ interface IQubicBridge {
     function setAdmin(address newAdmin) external;
     function addManager(address manager) external;
     function removeManager(address manager) external;
-    function createOrder(string calldata destinationAccount, uint256 amount) external returns (uint256);
+    function createOrder(string calldata destinationAccount, uint256 amount) external;
     function confirmOrder(uint256 orderId) external;
     function revertOrder(uint256 orderId) external;
     function executeOrder(uint256 originOrderId, string calldata originAccount, address destinationAccount, uint256 amount) external;
