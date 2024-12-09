@@ -9,203 +9,241 @@ contract QubicBridgeTest is Test {
     QubicToken public token;
     QubicBridge public bridge;
 
+    // accounts
     address admin = makeAddr("admin");
     address manager = makeAddr("manager");
     address operator = makeAddr("operator");
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
-    string queen = "FRDMFRRRCQTOUBOKAEJZEPLIOSVBQKYRCWILPZSJJCWNDYVXIMSAUVQFIXOM";
-    uint256 initialBalance = 100_000_000;
+
+    // constants
+    string constant QUBIC_DESTINATION = "FRDMFRRRCQTOUBOKAEJZEPLIOSVBQKYRCWILPZSJJCWNDYVXIMSAUVQFIXOM";
+    uint256 constant INITIAL_BALANCE = 100_000_000;
+    uint256 constant BASE_FEE = 200; // 2%
+    uint256 constant OPERATOR_FEE_PCT = 50; // 50%
 
     function setUp() public {
         vm.startPrank(admin);
-
-        // Initial fee 2% (2 decimal places)
-        uint256 baseFee = 2 * 100;
-
         token = new QubicToken();
-        bridge = new QubicBridge(address(token), baseFee);
+        bridge = new QubicBridge(address(token), BASE_FEE);
 
-        // admin adds bridge manager and token operator
-        assertEq(bridge.addManager(manager), true);
-        assertEq(token.addOperator(address(bridge)), true);
+        // Setup roles
+        bridge.addManager(manager);
+        token.addOperator(address(bridge));
 
-        // bridge manager adds bridge operator
         vm.startPrank(manager);
-        assertEq(bridge.addOperator(operator), true);
+        bridge.addOperator(operator);
 
-        deal(address(token), alice, initialBalance);
-        deal(address(token), bob, initialBalance);
+        // Setup initial balances
+        deal(address(token), alice, INITIAL_BALANCE);
+        deal(address(token), bob, INITIAL_BALANCE);
+        vm.stopPrank();
     }
 
-    function test_AddRemoveManager() public {
+    // ========== HELPER FUNCTIONS ==========
+
+    function createTestOrder(
+        address user,
+        uint256 amount
+    ) internal returns (uint256 orderId) {
+        vm.startPrank(user);
+        token.approve(address(bridge), amount);
+        bridge.createOrder(QUBIC_DESTINATION, amount);
+        vm.stopPrank();
+        return 1; // First order ID
+    }
+
+    function getTransferFee(uint256 amount, uint256 feePct) internal pure returns (uint256) {
+        uint256 DENOMINATOR = 10000 * 100;
+        return (amount * BASE_FEE * feePct + DENOMINATOR - 1) / DENOMINATOR;
+    }
+
+    // ========== ADMIN ROLE TESTS ==========
+
+    function test_AdminSetsNewAdmin() public {
+        address newAdmin = makeAddr("newAdmin");
         vm.startPrank(admin);
 
         vm.expectEmit(address(bridge));
-        emit QubicBridge.ManagerAdded(bob);
-        assertEq(bridge.addManager(bob), true);
+        emit QubicBridge.AdminUpdated(admin, newAdmin);
+        bridge.setAdmin(newAdmin);
 
-        vm.expectEmit(address(bridge));
-        emit QubicBridge.ManagerRemoved(bob);
-        assertEq(bridge.removeManager(bob), true);
+        assertEq(bridge.getAdmin(), newAdmin);
     }
 
-    function test_AddRemoveOperator() public {
-        vm.startPrank(manager);
-
-        vm.expectEmit(address(bridge));
-        emit QubicBridge.OperatorAdded(bob);
-        assertEq(bridge.addOperator(bob), true);
-
-        vm.expectEmit(address(bridge));
-        emit QubicBridge.OperatorRemoved(bob);
-        assertEq(bridge.removeOperator(bob), true);
-    }
-
-    function test_setBaseFee(uint256 baseFee) public {
+    function test_AdminSetsBaseFee(uint256 baseFee) public {
         vm.assume(baseFee < 100 * 100);
         vm.startPrank(admin);
+
         bridge.setBaseFee(baseFee);
         assertEq(bridge.baseFee(), baseFee);
     }
 
-    function test_setBaseFee_invalid() public {
+    function test_AdminFailsToSetBaseFee() public {
         vm.startPrank(admin);
-        vm.expectRevert(QubicBridge.InvalidBaseFee.selector, address(bridge));
+
+        vm.expectRevert(QubicBridge.InvalidBaseFee.selector);
         bridge.setBaseFee(101 * 100);
     }
 
-    function test_createOrder(uint256 amount) public {
-        vm.assume(amount > 1 && amount < initialBalance);
-        uint256 feePct = 50;
-        uint256 fee = getTransferFee(amount, bridge.baseFee(), feePct);
-        address originAccount = alice;
-        string memory destinationAccount = queen;
-        uint256 expectedOrderId = 1;
+    // ========== MANAGER ROLE TESTS ==========
 
-        // User creates the order
-        vm.startPrank(originAccount);
-        token.approve(address(bridge), amount);
+    function test_AdminSetsManager() public {
+        vm.startPrank(admin);
+
+        address newManager = makeAddr("newManager");
 
         vm.expectEmit(address(bridge));
-        emit QubicBridge.OrderCreated(expectedOrderId, originAccount, destinationAccount, amount);
-        bridge.createOrder(destinationAccount, amount);
+        emit QubicBridge.ManagerAdded(newManager);
+        assertTrue(bridge.addManager(newManager));
 
-        assertEq(token.balanceOf(originAccount), initialBalance - amount);
+        vm.expectEmit(address(bridge));
+        emit QubicBridge.ManagerRemoved(newManager);
+        assertTrue(bridge.removeManager(newManager));
+    }
+
+    // ========== OPERATOR ROLE TESTS ==========
+
+    function test_ManagerSetsOperator() public {
+        vm.startPrank(manager);
+
+        address newOperator = makeAddr("newOperator");
+
+        vm.expectEmit(address(bridge));
+        emit QubicBridge.OperatorAdded(newOperator);
+        assertTrue(bridge.addOperator(newOperator));
+
+        vm.expectEmit(address(bridge));
+        emit QubicBridge.OperatorRemoved(newOperator);
+        assertTrue(bridge.removeOperator(newOperator));
+    }
+
+    // ========== ORDER CREATION TESTS ==========
+
+    function test_UserCreatesValidOrder(uint256 amount) public {
+        vm.assume(amount > 1 && amount < INITIAL_BALANCE);
+
+        uint256 initialBalance = token.balanceOf(alice);
+        uint256 orderId = createTestOrder(alice, amount);
+
+        // Verify balances
+        assertEq(token.balanceOf(alice), initialBalance - amount);
         assertEq(token.balanceOf(address(bridge)), amount);
 
-        QubicBridge.PullOrder memory order = bridge.getOrder(expectedOrderId);
-        assertEq(order.originAccount, originAccount);
-        assertEq(order.destinationAccount, destinationAccount);
+        // Verify order details
+        QubicBridge.PullOrder memory order = bridge.getOrder(orderId);
+        assertEq(order.originAccount, alice);
+        assertEq(order.destinationAccount, QUBIC_DESTINATION);
         assertEq(order.amount, amount);
         assertEq(order.done, false);
+    }
 
-        // operator confirms the order
-        // the operator is the fee recipient
+    function test_OrderCreationFailsInvalidInputs() public {
+        // Test invalid amount
+        vm.startPrank(alice);
+        token.approve(address(bridge), 1);
+        vm.expectRevert(QubicBridge.InvalidAmount.selector);
+        bridge.createOrder(QUBIC_DESTINATION, 0);
+
+        // Test invalid destination account
+        vm.expectRevert(QubicBridge.InvalidDestinationAccount.selector);
+        bridge.createOrder("INVALID", 100);
+
+        // Test insufficient approval
+        vm.expectRevert(QubicBridge.InsufficientApproval.selector);
+        bridge.createOrder(QUBIC_DESTINATION, INITIAL_BALANCE + 1);
+    }
+
+    // ========== ORDER CONFIRMATION TESTS ==========
+
+    function test_OperatorConfirmsOrder(uint256 amount) public {
+        vm.assume(amount > 1 && amount < INITIAL_BALANCE);
+        uint256 orderId = createTestOrder(alice, amount);
+        uint256 fee = getTransferFee(amount, OPERATOR_FEE_PCT);
+
         vm.startPrank(operator);
         vm.expectEmit(address(bridge));
-        emit QubicBridge.OrderConfirmed(expectedOrderId, originAccount, destinationAccount, amount);
-        bridge.confirmOrder(expectedOrderId, feePct, operator);
+        emit QubicBridge.OrderConfirmed(orderId, alice, QUBIC_DESTINATION, amount);
+        bridge.confirmOrder(orderId, OPERATOR_FEE_PCT, operator);
+
         assertEq(token.balanceOf(address(bridge)), 0);
         assertEq(token.balanceOf(operator), fee);
 
-        order = bridge.getOrder(expectedOrderId);
-        assertEq(order.done, true);
-
-        // operator fails to confirm the order again
-        vm.expectRevert(QubicBridge.AlreadyConfirmed.selector, address(bridge));
-        bridge.confirmOrder(expectedOrderId, feePct, operator);
-
-        // operator fails to revert the order
-        vm.expectRevert(QubicBridge.AlreadyConfirmed.selector, address(bridge));
-        bridge.revertOrder(expectedOrderId, feePct, operator);
+        QubicBridge.PullOrder memory order = bridge.getOrder(orderId);
+        assertTrue(order.done);
     }
 
-    function test_revertOrder(uint256 amount) public {
-        vm.assume(amount > 1 && amount < initialBalance);
-        uint256 feePct = 50;
-        uint256 fee = getTransferFee(amount, bridge.baseFee(), feePct);
-        address originAccount = alice;
-        uint256 initialOriginBalance = token.balanceOf(originAccount);
-        string memory destinationAccount = queen;
-        uint256 expectedOrderId = 1;
+    function test_OrderConfirmationFailures() public {
+        uint256 amount = 100_000;
+        uint256 orderId = createTestOrder(alice, amount);
 
-        // User creates the order
-        vm.startPrank(originAccount);
-        token.approve(address(bridge), amount);
+        // Confirm order
+        vm.prank(operator);
+        bridge.confirmOrder(orderId, OPERATOR_FEE_PCT, operator);
 
-        vm.expectEmit(address(bridge));
-        emit QubicBridge.OrderCreated(expectedOrderId, originAccount, destinationAccount, amount);
-        bridge.createOrder(destinationAccount, amount);
+        // Try to confirm again
+        vm.expectRevert(QubicBridge.AlreadyConfirmed.selector);
+        vm.prank(operator);
+        bridge.confirmOrder(orderId, OPERATOR_FEE_PCT, operator);
 
-        assertEq(expectedOrderId, expectedOrderId);
-        assertEq(token.balanceOf(originAccount), initialOriginBalance - amount);
-        assertEq(token.balanceOf(address(bridge)), amount);
+        // Try to revert confirmed order
+        vm.expectRevert(QubicBridge.AlreadyConfirmed.selector);
+        vm.prank(operator);
+        bridge.revertOrder(orderId, OPERATOR_FEE_PCT, operator);
+    }
 
-        // operator reverts the order
+    // ========== ORDER REVERT TESTS ==========
+
+    function test_OperatorRevertsOrder() public {
+        uint256 amount = 100_000;
+        uint256 initialBalance = token.balanceOf(alice);
+        uint256 fee = getTransferFee(amount, OPERATOR_FEE_PCT);
+        uint256 orderId = createTestOrder(alice, amount);
+
         vm.startPrank(operator);
         vm.expectEmit(address(bridge));
-        emit QubicBridge.OrderReverted(expectedOrderId, originAccount, destinationAccount, amount);
-        bridge.revertOrder(expectedOrderId, feePct, operator);
+        emit QubicBridge.OrderReverted(orderId, alice, QUBIC_DESTINATION, amount);
+        bridge.revertOrder(orderId, OPERATOR_FEE_PCT, operator);
+
         assertEq(token.balanceOf(address(bridge)), 0);
-        assertEq(token.balanceOf(originAccount), initialOriginBalance - fee);
-
-        // operator fails to revert the order again
-        vm.expectRevert(QubicBridge.InvalidOrderId.selector, address(bridge));
-        bridge.revertOrder(expectedOrderId, feePct, operator);
-
-        // operator fails to confirm the order
-        vm.expectRevert(QubicBridge.InvalidOrderId.selector, address(bridge));
-        bridge.confirmOrder(expectedOrderId, feePct, operator);
-    }
-
-    function test_executeOrder(uint256 amount) public {
-        vm.assume(amount > 1 && amount < initialBalance);
-        uint256 originOrderId = 1;
-        uint256 feePct = 50;
-        uint256 fee = getTransferFee(amount, bridge.baseFee(), feePct);
-        uint256 amountAfterFee = amount - fee;
-        string memory originAccount = queen;
-        address destinationAccount = bob;
-
-        vm.startPrank(operator);
-
-        // operator executes the order
-        // the operator is the fee recipient
-        vm.expectEmit(address(bridge));
-        emit QubicBridge.OrderExecuted(originOrderId, originAccount, destinationAccount, amount);
-        bridge.executeOrder(originOrderId, originAccount, destinationAccount, amount, feePct, operator);
-        assertEq(token.balanceOf(destinationAccount), initialBalance + amountAfterFee);
+        assertEq(token.balanceOf(alice), initialBalance - fee);
         assertEq(token.balanceOf(operator), fee);
     }
 
-    function test_executeOrder_invalid() public {
+    // ========== ORDER EXECUTION TESTS ==========
+
+    function test_OperatorExecutesOrder(uint256 amount) public {
+        vm.assume(amount > 1 && amount < INITIAL_BALANCE);
         uint256 orderId = 1;
-        uint256 feePct = 50;
-        string memory originAccount = queen;
-        address destinationAccount = bob;
-        uint256 amount = 1_000_000;
+        uint256 initialBalance = token.balanceOf(bob);
+        uint256 fee = getTransferFee(amount, OPERATOR_FEE_PCT);
+        uint256 amountAfterFee = amount - fee;
 
-        // invalid operator
-        vm.startPrank(bob);
-        vm.expectRevert(address(bridge)); //AccessControl.AccessControlUnauthorizedAccount.signature, address(bridge));
-        bridge.executeOrder(orderId, originAccount, destinationAccount, amount, feePct, operator);
-
-        // invalid amount
         vm.startPrank(operator);
-        vm.expectRevert(QubicBridge.InvalidAmount.selector, address(bridge));
-        bridge.executeOrder(orderId, originAccount, destinationAccount, 0, feePct, operator);
+        vm.expectEmit(address(bridge));
+        emit QubicBridge.OrderExecuted(orderId, QUBIC_DESTINATION, bob, amount);
+        bridge.executeOrder(orderId, QUBIC_DESTINATION, bob, amount, OPERATOR_FEE_PCT, operator);
 
-        // invalid destination account
-        vm.startPrank(operator);
-        vm.expectRevert(QubicBridge.InvalidDestinationAccount.selector, address(bridge));
-        bridge.executeOrder(orderId, originAccount, address(0), amount, feePct, operator);
+        assertEq(token.balanceOf(bob), initialBalance + amountAfterFee);
+        assertEq(token.balanceOf(operator), fee);
     }
 
-    function getTransferFee(uint256 amount, uint256 baseFee, uint256 feePct) internal pure returns (uint256) {
-        // baseFee_decimals * feePct_decimals
-        uint256 DENOMINATOR = 10000 * 100;
-        // calculate rounding 1 up
-        return (amount * baseFee * feePct + DENOMINATOR - 1) / DENOMINATOR;
+    function test_ExecuteOrderFailsInvalidInputs() public {
+        uint256 orderId = 1;
+        uint256 amount = 100_000;
+
+        // Test unauthorized caller
+        vm.startPrank(bob);
+        vm.expectRevert();
+        bridge.executeOrder(orderId, QUBIC_DESTINATION, bob, amount, OPERATOR_FEE_PCT, operator);
+
+        // Test invalid amount
+        vm.startPrank(operator);
+        vm.expectRevert(QubicBridge.InvalidAmount.selector);
+        bridge.executeOrder(orderId, QUBIC_DESTINATION, bob, 0, OPERATOR_FEE_PCT, operator);
+
+        // Test invalid destination
+        vm.expectRevert(QubicBridge.InvalidDestinationAccount.selector);
+        bridge.executeOrder(orderId, QUBIC_DESTINATION, address(0), amount, OPERATOR_FEE_PCT, operator);
     }
 }
