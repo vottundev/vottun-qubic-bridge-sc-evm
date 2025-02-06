@@ -2,9 +2,10 @@
 pragma solidity ^0.8.28;
 
 import "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import "./QubicToken.sol";
 
-contract QubicBridge is AccessControlEnumerable {
+contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient {
     address public immutable token;
     uint256 public baseFee;
 
@@ -183,7 +184,7 @@ contract QubicBridge is AccessControlEnumerable {
         uint256 orderId,
         uint256 feePct,
         address feeRecipient
-    ) external onlyRole(OPERATOR_ROLE) {
+    ) external onlyRole(OPERATOR_ROLE) nonReentrant {
         PullOrder memory order = pullOrders[orderId - 1];
         uint256 amount = uint256(order.amount);
 
@@ -221,7 +222,7 @@ contract QubicBridge is AccessControlEnumerable {
         uint256 orderId,
         uint256 feePct,
         address feeRecipient
-    ) external onlyRole(OPERATOR_ROLE) {
+    ) external onlyRole(OPERATOR_ROLE) nonReentrant {
         PullOrder memory order = pullOrders[orderId - 1];
         uint256 amount = uint256(order.amount);
         if (amount == 0) {
@@ -264,7 +265,7 @@ contract QubicBridge is AccessControlEnumerable {
         uint256 amount,
         uint256 feePct,
         address feeRecipient
-    ) external onlyRole(OPERATOR_ROLE) {
+    ) external onlyRole(OPERATOR_ROLE) nonReentrant {
         if (destinationAccount == address(0)) {
             revert InvalidDestinationAccount();
         }
