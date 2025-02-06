@@ -148,7 +148,7 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient {
         string calldata destinationAccount,
         uint256 amount
     ) external {
-        if (bytes(destinationAccount).length != QUBIC_ACCOUNT_LENGTH) {
+        if (!isQubicAddress(destinationAccount)) {
             revert InvalidDestinationAccount();
         }
         if (QubicToken(token).allowance(msg.sender, address(this)) < amount) {
@@ -345,5 +345,31 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient {
      */
     function getOperators() external view returns (address[] memory) {
         return getRoleMembers(OPERATOR_ROLE);
+    }
+
+    /**
+     * @notice Checks if an address is a valid Qubic address
+     * @param addr Address to check
+     * @return bool
+     */
+    function isQubicAddress(string memory addr) internal pure returns (bool) {
+        bytes memory baddr = bytes(addr);
+
+        if (baddr.length != QUBIC_ACCOUNT_LENGTH) {
+            return false;
+        }
+
+        for (uint i = 0; i < QUBIC_ACCOUNT_LENGTH; i++) {
+            bytes1 char = baddr[i];
+
+            if (
+                !(char >= 0x30 && char <= 0x39) && // 0-9
+                !(char >= 0x41 && char <= 0x5A) // A-Z
+            ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
