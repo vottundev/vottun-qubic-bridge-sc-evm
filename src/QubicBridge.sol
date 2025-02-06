@@ -153,7 +153,7 @@ contract QubicBridge is AccessControlEnumerable {
         if (QubicToken(token).allowance(msg.sender, address(this)) < amount) {
             revert InsufficientApproval();
         }
-        if (amount == 0) {
+        if (amount == 0 || amount > type(uint248).max) {
             revert InvalidAmount();
         }
 
