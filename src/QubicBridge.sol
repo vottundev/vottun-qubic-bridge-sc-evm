@@ -3,9 +3,10 @@ pragma solidity ^0.8.28;
 
 import "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
 import "./QubicToken.sol";
 
-contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient {
+contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausable {
     address public immutable token;
     uint256 public baseFee;
 
@@ -147,7 +148,7 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient {
     function createOrder(
         string calldata destinationAccount,
         uint256 amount
-    ) external {
+    ) external whenNotPaused {
         if (!isQubicAddress(destinationAccount)) {
             revert InvalidDestinationAccount();
         }
@@ -295,6 +296,14 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient {
         QubicToken(token).mint(destinationAccount, amountAfterFee);
 
         emit OrderExecuted(originOrderId, originAccount, destinationAccount, amount);
+    }
+
+    function emergencyPause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _pause();
+    }
+
+    function emergencyUnpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _unpause();
     }
 
     /**
