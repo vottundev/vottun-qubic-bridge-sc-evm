@@ -8,6 +8,7 @@ import {QubicBridge} from "../src/QubicBridge.sol";
 contract QubicBridgeTest is Test {
     QubicToken public token;
     QubicBridge public bridge;
+    QubicBridgeHelper public qubicBridgeHelper;
 
     // accounts
     address admin = makeAddr("admin");
@@ -26,6 +27,7 @@ contract QubicBridgeTest is Test {
         vm.startPrank(admin);
         token = new QubicToken();
         bridge = new QubicBridge(address(token), BASE_FEE);
+        qubicBridgeHelper = new QubicBridgeHelper(address(token), BASE_FEE);
 
         // Setup roles
         bridge.addManager(manager);
@@ -51,11 +53,6 @@ contract QubicBridgeTest is Test {
         bridge.createOrder(QUBIC_DESTINATION, amount);
         vm.stopPrank();
         return 1; // First order ID
-    }
-
-    function getTransferFee(uint256 amount, uint256 feePct) internal pure returns (uint256) {
-        uint256 DENOMINATOR = 10000 * 100;
-        return (amount * BASE_FEE * feePct + DENOMINATOR - 1) / DENOMINATOR;
     }
 
     // ========== ADMIN ROLE TESTS ==========
@@ -159,7 +156,7 @@ contract QubicBridgeTest is Test {
     function test_OperatorConfirmsOrder(uint256 amount) public {
         vm.assume(amount > 1 && amount < INITIAL_BALANCE);
         uint256 orderId = createTestOrder(alice, amount);
-        uint256 fee = getTransferFee(amount, OPERATOR_FEE_PCT);
+        uint256 fee = qubicBridgeHelper._getTransferFee(amount, OPERATOR_FEE_PCT);
 
         vm.startPrank(operator);
         vm.expectEmit(address(bridge));
@@ -197,7 +194,7 @@ contract QubicBridgeTest is Test {
     function test_OperatorRevertsOrder() public {
         uint256 amount = 100_000;
         uint256 initialBalance = token.balanceOf(alice);
-        uint256 fee = getTransferFee(amount, OPERATOR_FEE_PCT);
+        uint256 fee = qubicBridgeHelper._getTransferFee(amount, OPERATOR_FEE_PCT);
         uint256 orderId = createTestOrder(alice, amount);
 
         vm.startPrank(operator);
@@ -216,7 +213,7 @@ contract QubicBridgeTest is Test {
         vm.assume(amount > 1 && amount < INITIAL_BALANCE);
         uint256 orderId = 1;
         uint256 initialBalance = token.balanceOf(bob);
-        uint256 fee = getTransferFee(amount, OPERATOR_FEE_PCT);
+        uint256 fee = qubicBridgeHelper._getTransferFee(amount, OPERATOR_FEE_PCT);
         uint256 amountAfterFee = amount - fee;
 
         vm.startPrank(operator);
@@ -245,5 +242,49 @@ contract QubicBridgeTest is Test {
         // Test invalid destination
         vm.expectRevert(QubicBridge.InvalidDestinationAccount.selector);
         bridge.executeOrder(orderId, QUBIC_DESTINATION, address(0), amount, OPERATOR_FEE_PCT, operator);
+    }
+
+    // ========== EMERGENCY WITHDRAWALS ==========
+
+    function test_EmergencyTokenWithdraw() public {
+        uint256 amount = 100_000;
+
+        vm.startPrank(alice);
+        token.transfer(address(bridge), amount);
+        vm.stopPrank();
+
+        vm.startPrank(admin);
+        bridge.emergencyTokenWithdraw(address(token), amount);
+        vm.stopPrank();
+
+        assertEq(token.balanceOf(admin), amount);
+    }
+
+    function test_EmergencyEtherWithdraw() public {
+        uint256 amount = 100_000;
+        vm.deal(address(bridge), amount);
+
+        vm.startPrank(admin);
+        bridge.emergencyEtherWithdraw();
+        vm.stopPrank();
+
+        assertEq(address(admin).balance, amount);
+    }
+
+    // ========== TRANSFER FEE CALCULATION ==========
+
+    function test_getTransferFee(uint256 amount, uint256 feePct) public view {
+        vm.assume(feePct <= 100);
+        vm.assume(amount < 10e18);
+        uint256 fee = qubicBridgeHelper._getTransferFee(amount, feePct);
+        assertLe(fee, amount);
+    }
+}
+
+contract QubicBridgeHelper is QubicBridge {
+    constructor(address token, uint256 baseFee) QubicBridge(token, baseFee) {}
+
+    function _getTransferFee(uint256 amount, uint256 feePct) public view returns (uint256) {
+        return getTransferFee(amount, feePct);
     }
 }
