@@ -15,27 +15,34 @@ The initial smart contracts have been implemented with a focus on simplicity and
 Roles
 -----
 
-- `QubicToken`
+- `QubicToken` (QubicToken.sol)
   - `Admin`:
-    - Can add and remove minters, as well as change the admin.
+    - Can add and remove minters (addMinter, removeMinter)
+    - Can change the admin (setAdmin)
     - Only one admin is allowed.
   - `Operator`:
-    - Can mint and burn WQUBIC tokens.
+    - Can mint and burn WQUBIC tokens (mint, burn)
     - Multiple operators are allowed.
     - Any bridge contract in operation must be added as an operator.
 
-- `QubicBridge`
+- `QubicBridge` (QubicBridge.sol)
   - `Admin`:
-    - Can add and remove managers.
-    - Can change the admin.
+    - Can add and remove managers (addManager, removeManager)
+    - Can change the admin (setAdmin)
+    - Can pause and unpause the bridge (emergencyPause, emergencyUnpause)
+    - Can withdraw tokens in case of emergency (emergencyTokenWithdraw)
+    - Can withdraw Ether in case of emergency (emergencyEtherWithdraw)
+    - Can set the base fee (setBaseFee)    -
     - Only one admin is allowed.
   - `Manager`:
-    - Can add and remove operators.
+    - Can add and remove operators (addOperator, removeOperator)
     - Multiple managers are allowed.
   - `Operator`:
-    - Can operate the bridge to push and pull tokens.
+    - Can operate the bridge to push and pull tokens (confirmOrder, revertOrder, executeOrder)
     - Multiple operators are allowed.
     - Any backend node in operation must be added as an operator.
+  - `User`:
+    - Can create a pull order (createOrder)
 
 Main bridge methods
 -------------------
@@ -43,6 +50,7 @@ Main bridge methods
 - `createOrder`: Called by the user to create a pull order.
   - Parameters:
     - `destinationAccount`: Address of the destination account in Qubic.
+      - The address must be a valid Qubic address.
     - `amount`: Amount of tokens to transfer.
   - Emits `OrderCreated` event.
 - `confirmOrder`: Called by the operator to confirm a pull order.
