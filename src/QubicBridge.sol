@@ -53,6 +53,8 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
     event OrderExecuted(
         uint256 indexed originOrderId, string indexed originAccount, address indexed destinationAccount, uint256 amount
     );
+    event EmergencyTokenWithdrawn(address tokenAddress, address to, uint256 amount);
+    event EmergencyEtherWithdrawn(address to, uint256 amount);
 
     /**
      * @notice Custom Errors
@@ -65,7 +67,8 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
     error InsufficientApproval();
     error AlreadyConfirmed();
     error AlreadyExecuted();
-
+    error TokenTransferFailed();
+    error EtherTransferFailed();
     constructor(address _token, uint256 _baseFee) {
         token = _token;
         baseFee = _baseFee;
@@ -304,6 +307,35 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
 
     function emergencyUnpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
+    }
+
+    /**
+     * @notice Called by the admin to withdraw tokens in case of emergency
+     * @param tokenAddress Address of the token to withdraw
+     * @param amount Amount of tokens to withdraw
+     */
+    function emergencyTokenWithdraw(address tokenAddress, uint256 amount) external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
+        (bool success, ) = tokenAddress.call(abi.encodeWithSignature("transfer(address,uint256)", msg.sender, amount));
+
+        if (!success) {
+            revert TokenTransferFailed();
+        }
+
+        emit EmergencyTokenWithdrawn(tokenAddress, msg.sender, amount);
+    }
+
+    /**
+     * @notice Called by the admin to withdraw all Ether in case of emergency
+     */
+    function emergencyEtherWithdraw() external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
+        uint256 amount = address(this).balance;
+        (bool success, ) = msg.sender.call{value: amount}("");
+
+        if (!success) {
+            revert EtherTransferFailed();
+        }
+
+        emit EmergencyEtherWithdrawn(msg.sender, amount);
     }
 
     /**
