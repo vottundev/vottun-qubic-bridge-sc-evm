@@ -69,6 +69,12 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
     error AlreadyExecuted();
     error TokenTransferFailed();
     error EtherTransferFailed();
+
+    /**
+     * @notice Constructor
+     * @param _token Address of the bridge token
+     * @param _baseFee Base fee (2 decimal places)
+     */
     constructor(address _token, uint256 _baseFee) {
         token = _token;
         baseFee = _baseFee;
@@ -339,13 +345,14 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
     }
 
     /**
-     * @notice Gets the fee for a particular transfer
-     * @param amount Amount of this transfer
-     * @param feePct Percentage of the fee for this transfer
-     * @return Fee
+     * @notice Calculates the transfer fee with a guaranteed minimum of 1
+     * @dev Rounds up so that it favors the protocol
+     * @param amount Transfer amount
+     * @param feePct Percentage of the baseFee to apply (no decimal places)
+     * @return The calculated fee amount
      */
     function getTransferFee(uint256 amount, uint256 feePct) internal view returns (uint256) {
-        // baseFee_decimals * feePct_decimals
+        // baseFee decimals * feePct decimals
         uint256 DENOMINATOR = 10000 * 100;
         // calculate rounding 1 up
         return (amount * baseFee * feePct + DENOMINATOR - 1) / DENOMINATOR;
