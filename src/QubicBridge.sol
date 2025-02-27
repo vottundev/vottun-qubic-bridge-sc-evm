@@ -59,6 +59,7 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
     /**
      * @notice Custom Errors
      */
+    error InvalidAddress();
     error InvalidBaseFee();
     error InvalidDestinationAccount();
     error InvalidAmount();
@@ -87,6 +88,9 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
      * @param newAdmin Address of the new admin
      */
     function setAdmin(address newAdmin) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (newAdmin == address(0)) {
+            revert InvalidAddress();
+        }
         address admin = getRoleMember(DEFAULT_ADMIN_ROLE, 0);
         _revokeRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(DEFAULT_ADMIN_ROLE, newAdmin);
@@ -99,6 +103,9 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
      * @return True if the role was granted, false otherwise
      */
     function addManager(address newManager) external onlyRole(DEFAULT_ADMIN_ROLE) returns (bool) {
+        if (newManager == address(0)) {
+            revert InvalidAddress();
+        }
         bool success = _grantRole(MANAGER_ROLE, newManager);
         emit ManagerAdded(newManager);
         return success;
@@ -121,6 +128,9 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
      * @return True if the role was granted, false otherwise
      */
     function addOperator(address newOperator) external onlyRole(MANAGER_ROLE) returns (bool) {
+        if (newOperator == address(0)) {
+            revert InvalidAddress();
+        }
         bool success = _grantRole(OPERATOR_ROLE, newOperator);
         emit OperatorAdded(newOperator);
         return success;
