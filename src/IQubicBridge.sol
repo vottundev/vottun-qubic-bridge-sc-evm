@@ -41,7 +41,11 @@ interface IQubicBridge {
     function removeManager(address manager) external returns (bool);
     function addOperator(address operator) external returns (bool);
     function removeOperator(address operator) external returns (bool);
-    function createOrder(string calldata destinationAccount, uint256 amount) external;
+    function createOrder(
+        string calldata destinationAccount,
+        uint256 amount,
+        bool bypassDestinationAccountCheck
+    ) external;
     function confirmOrder(
         uint256 orderId,
         uint256 feePct,

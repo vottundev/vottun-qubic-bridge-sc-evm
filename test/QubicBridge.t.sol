@@ -17,6 +17,8 @@ contract QubicBridgeTest is Test {
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
 
+    uint256 testOrderId;
+
     // constants
     string constant QUBIC_DESTINATION = "FRDMFRRRCQTOUBOKAEJZEPLIOSVBQKYRCWILPZSJJCWNDYVXIMSAUVQFIXOM";
     uint256 constant INITIAL_BALANCE = 100_000_000;
@@ -50,9 +52,9 @@ contract QubicBridgeTest is Test {
     ) internal returns (uint256 orderId) {
         vm.startPrank(user);
         token.approve(address(bridge), amount);
-        bridge.createOrder(QUBIC_DESTINATION, amount);
+        bridge.createOrder(QUBIC_DESTINATION, amount, false);
         vm.stopPrank();
-        return 1; // First order ID
+        return ++testOrderId; // First order ID
     }
 
     // ========== ADMIN ROLE TESTS ==========
@@ -140,15 +142,15 @@ contract QubicBridgeTest is Test {
         vm.startPrank(alice);
         token.approve(address(bridge), 1);
         vm.expectRevert(QubicBridge.InvalidAmount.selector);
-        bridge.createOrder(QUBIC_DESTINATION, 0);
+        bridge.createOrder(QUBIC_DESTINATION, 0, false);
 
         // Test invalid destination account
         vm.expectRevert(QubicBridge.InvalidDestinationAccount.selector);
-        bridge.createOrder("INVALID", 100);
+        bridge.createOrder("INVALID", 100, false);
 
         // Test insufficient approval
         vm.expectRevert(QubicBridge.InsufficientApproval.selector);
-        bridge.createOrder(QUBIC_DESTINATION, INITIAL_BALANCE + 1);
+        bridge.createOrder(QUBIC_DESTINATION, INITIAL_BALANCE + 1, false);
     }
 
     // ========== ORDER CONFIRMATION TESTS ==========

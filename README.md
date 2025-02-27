@@ -52,6 +52,7 @@ Main bridge methods
     - `destinationAccount`: Address of the destination account in Qubic.
       - The address must be a valid Qubic address.
     - `amount`: Amount of tokens to transfer.
+    - `bypassDestinationAccountCheck`: Whether to bypass the Qubic address check (gas-expensive)
   - Emits `OrderCreated` event.
 - `confirmOrder`: Called by the operator to confirm a pull order.
   - Parameters:

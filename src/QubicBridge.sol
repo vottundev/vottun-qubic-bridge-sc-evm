@@ -7,14 +7,12 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import "./QubicToken.sol";
 
 contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausable {
-    address public immutable token;
+    /**
+     * @notice State
+     */
     uint256 public baseFee;
 
-    bytes32 constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
-    bytes32 constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
-
-    uint8 constant QUBIC_ACCOUNT_LENGTH = 60;
-
+    /// @notice Outgoing orders generated from this contract
     struct PullOrder {
         address originAccount;
         string destinationAccount;
@@ -22,15 +20,19 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
         bool done;
     }
 
-    /**
-     * @notice Outgoing orders generated from this contract
-     */
-    PullOrder[] pullOrders;
+    mapping(uint256 => PullOrder) pullOrders;
+    uint256 lastPullOrderId;
+
+    /// @notice Incoming orders generated from the origin network
+    mapping(uint256 => bool) pushOrders;
 
     /**
-     * @notice Incoming orders generated from the origin network
+     * @notice Constants
      */
-    mapping(uint256 => bool) pushOrders;
+    address public immutable token;
+    bytes32 constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
+    bytes32 constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
+    uint8 constant QUBIC_ACCOUNT_LENGTH = 60;
 
     /**
      * @notice Events
@@ -164,12 +166,14 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
      * @notice Called by the user to initiate a transfer-out order
      * @param destinationAccount Destination account in Qubic network
      * @param amount Amount of QUBIC to send
+     * @param bypassDestinationAccountCheck Whether to bypass the Qubic address check (gas-expensive)
      */
     function createOrder(
         string calldata destinationAccount,
-        uint256 amount
+        uint256 amount,
+        bool bypassDestinationAccountCheck
     ) external whenNotPaused {
-        if (!isQubicAddress(destinationAccount)) {
+        if (!bypassDestinationAccountCheck && !isQubicAddress(destinationAccount)) {
             revert InvalidDestinationAccount();
         }
         if (QubicToken(token).allowance(msg.sender, address(this)) < amount) {
@@ -181,14 +185,15 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
 
         address originAccount = msg.sender;
 
-        pullOrders.push(PullOrder(
+        // order Ids begin at 1
+        uint256 orderId = ++lastPullOrderId;
+
+        pullOrders[orderId] = PullOrder(
             originAccount,
             destinationAccount,
             uint248(amount),
             false
-        ));
-
-        uint256 orderId = pullOrders.length;
+        );
 
         QubicToken(token).transferFrom(originAccount, address(this), amount);
 
@@ -206,7 +211,7 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
         uint256 feePct,
         address feeRecipient
     ) external onlyRole(OPERATOR_ROLE) nonReentrant {
-        PullOrder memory order = pullOrders[orderId - 1];
+        PullOrder memory order = pullOrders[orderId];
         uint256 amount = uint256(order.amount);
 
         if (amount == 0) {
@@ -223,7 +228,7 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
         uint256 amountAfterFee = amount - fee;
 
         // Mark the order done
-        pullOrders[orderId - 1].done = true;
+        pullOrders[orderId].done = true;
 
         // Transfer the fee to the recipient
         if (fee > 0) {
@@ -247,8 +252,9 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
         uint256 feePct,
         address feeRecipient
     ) external onlyRole(OPERATOR_ROLE) nonReentrant {
-        PullOrder memory order = pullOrders[orderId - 1];
+        PullOrder memory order = pullOrders[orderId];
         uint256 amount = uint256(order.amount);
+
         if (amount == 0) {
             revert InvalidOrderId();
         }
@@ -260,7 +266,7 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
         }
 
         // Delete the order
-        delete pullOrders[orderId - 1];
+        delete pullOrders[orderId];
 
         uint256 fee = getTransferFee(amount, feePct);
         uint256 amountAfterFee = amount - fee;
@@ -383,12 +389,12 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
      * @param orderId Order ID
      * @return Pull order
      */
-    function getOrder(uint256 orderId) external view returns (PullOrder memory) {
-        if (orderId == 0 || orderId > pullOrders.length) {
+     function getOrder(uint256 orderId) external view returns (PullOrder memory) {
+        if (orderId == 0 || orderId > lastPullOrderId) {
             revert InvalidOrderId();
         }
 
-        return pullOrders[orderId - 1];
+        return pullOrders[orderId];
     }
 
     /**
