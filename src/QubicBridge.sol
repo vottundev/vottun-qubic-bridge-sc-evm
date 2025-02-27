@@ -64,6 +64,7 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
     error InvalidDestinationAccount();
     error InvalidAmount();
     error InvalidFeePct();
+    error InvalidFeeRecipient();
     error InvalidOrderId();
     error InsufficientApproval();
     error AlreadyConfirmed();
@@ -214,6 +215,9 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
         if (order.done) {
             revert AlreadyConfirmed();
         }
+        if (feeRecipient == address(0)) {
+            revert InvalidFeeRecipient();
+        }
 
         uint256 fee = getTransferFee(amount, feePct);
         uint256 amountAfterFee = amount - fee;
@@ -250,6 +254,9 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
         }
         if (order.done) {
             revert AlreadyConfirmed();
+        }
+        if (feeRecipient == address(0)) {
+            revert InvalidFeeRecipient();
         }
 
         // Delete the order
@@ -294,6 +301,9 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
         }
         if (pushOrders[originOrderId]) {
             revert AlreadyExecuted();
+        }
+        if (feeRecipient == address(0)) {
+            revert InvalidFeeRecipient();
         }
 
         uint256 fee = getTransferFee(amount, feePct);
