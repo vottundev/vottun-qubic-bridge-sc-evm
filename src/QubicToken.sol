@@ -25,6 +25,7 @@ contract QubicToken is ERC20, AccessControlEnumerable {
      * @param newAdmin Address of the new admin
      */
     function setAdmin(address newAdmin) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(newAdmin != address(0), "Admin cannot be zero address");
         address admin = getRoleMember(DEFAULT_ADMIN_ROLE, 0);
         _revokeRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(DEFAULT_ADMIN_ROLE, newAdmin);
@@ -37,6 +38,7 @@ contract QubicToken is ERC20, AccessControlEnumerable {
      * @return True if the role was granted, false otherwise
      */
     function addOperator(address newOperator) external onlyRole(DEFAULT_ADMIN_ROLE) returns (bool) {
+        require(newOperator != address(0), "Operator cannot be zero address");
         bool success = _grantRole(OPERATOR_ROLE, newOperator);
         emit OperatorAdded(newOperator);
         return success;
