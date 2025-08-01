@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity 0.8.30;
 
 import "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
@@ -201,9 +201,12 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
     }
 
     /**
-     * @notice Called by the operator backend to confirm a transfer-out order
+     * @notice Called by the operator backend to confirm a transfer-out order - CENTRALIZATION RISK
+     * @dev AUDIT NOTE (KS–VB–F–04): Operators can arbitrarily set feeRecipient address,
+     *      allowing them to direct transfer fees to themselves or any address they control.
+     *      This creates risk of fee extraction and self-dealing.
      * @param orderId Order ID
-     * @param feePct Percentage of the transfer fee that the recipient will receive
+     * @param feePct Percentage of the baseFee to apply (no decimal places)
      * @param feeRecipient Address of the recipient of the transfer fee
      */
     function confirmOrder(
@@ -219,6 +222,9 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
         }
         if (order.done) {
             revert AlreadyConfirmed();
+        }
+        if (feePct > 100) {
+            revert InvalidFeePct();
         }
         if (feeRecipient == address(0)) {
             revert InvalidFeeRecipient();
@@ -242,9 +248,11 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
     }
 
     /**
-     * @notice Called by the operator backend to revert a failed transfer-out order
+     * @notice Called by the operator backend to revert a transfer-out order - CENTRALIZATION RISK
+     * @dev AUDIT NOTE (KS–VB–F–04): Same centralization risks as confirmOrder.
+     *      Operators can direct fees to any address.
      * @param orderId Order ID
-     * @param feePct Percentage of the transfer fee that the recipient will receive
+     * @param feePct Percentage of the baseFee to apply (no decimal places)
      * @param feeRecipient Address of the recipient of the transfer fee
      */
     function revertOrder(
@@ -260,6 +268,9 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
         }
         if (order.done) {
             revert AlreadyConfirmed();
+        }
+        if (feePct > 100) {
+            revert InvalidFeePct();
         }
         if (feeRecipient == address(0)) {
             revert InvalidFeeRecipient();
@@ -283,12 +294,14 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
     }
 
     /**
-     * @notice Called by the operator backend to execute a transfer-in order initiated in the origin network
+     * @notice Called by the operator backend to execute a transfer-in order initiated in the origin network - CENTRALIZATION RISK
+     * @dev AUDIT NOTE (KS–VB–F–04): Same centralization risks as confirmOrder and revertOrder.
+     *      Operators have authority to confirm, revert, and execute orders with arbitrary fee recipients.
      * @param originOrderId Order ID in the origin network
      * @param originAccount Origin account in the origin network
      * @param destinationAccount Destination account in this network
-     * @param amount Amount of QubicToken to receive
-     * @param feePct Percentage of the transfer fee that the recipient will receive
+     * @param amount Amount of QUBIC to send
+     * @param feePct Percentage of the baseFee to apply (no decimal places)
      * @param feeRecipient Address of the recipient of the transfer fee
      */
     function executeOrder(
@@ -333,16 +346,37 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
         emit OrderExecuted(originOrderId, originAccount, destinationAccount, amount);
     }
 
+    /**
+     * @notice Emergency pause function - CENTRALIZATION RISK
+     * @dev AUDIT NOTE (KS–VB–F–04): This function creates centralization risk as admin
+     *      can unilaterally pause the entire bridge. This is an intentional design decision
+     *      for emergency response capabilities. Recommended mitigations:
+     *      - Use multi-signature wallet for admin role
+     *      - Implement timelock for critical operations
+     *      - Consider governance mechanisms for pause decisions
+     */
     function emergencyPause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _pause();
     }
 
+    /**
+     * @notice Emergency unpause function - CENTRALIZATION RISK
+     * @dev AUDIT NOTE (KS–VB–F–04): Admin can unilaterally unpause the bridge
+     */
     function emergencyUnpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
     }
 
     /**
-     * @notice Called by the admin to withdraw tokens in case of emergency
+     * @notice Called by the admin to withdraw tokens in case of emergency - CENTRALIZATION RISK
+     * @dev AUDIT NOTE (KS–VB–F–04): This function creates significant centralization risk
+     *      as admin can withdraw ALL tokens from the contract at any time. This introduces
+     *      custodial risk and makes the contract non-trustless. Users must trust that the
+     *      admin will not abuse this power. Recommended mitigations:
+     *      - Use multi-signature wallet for admin role
+     *      - Implement transparent governance processes
+     *      - Consider timelock mechanisms for withdrawals
+     *      - Regular security audits of privileged accounts
      * @param tokenAddress Address of the token to withdraw
      * @param amount Amount of tokens to withdraw
      */
@@ -357,7 +391,9 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
     }
 
     /**
-     * @notice Called by the admin to withdraw all Ether in case of emergency
+     * @notice Called by the admin to withdraw all Ether in case of emergency - CENTRALIZATION RISK
+     * @dev AUDIT NOTE (KS–VB–F–04): Admin can withdraw ALL Ether from the contract.
+     *      Same centralization risks apply as with emergencyTokenWithdraw.
      */
     function emergencyEtherWithdraw() external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
         uint256 amount = address(this).balance;
@@ -425,25 +461,51 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
      * @notice Checks if an address is a valid Qubic address
      * @param addr Address to check
      * @return bool
+     * @dev This function validates format and characters but does not verify checksum.
+     *      Full checksum validation would require implementing Qubic's specific algorithm.
+     *      The bridge relies on the Qubic network to reject invalid addresses.
      */
     function isQubicAddress(string memory addr) internal pure returns (bool) {
         bytes memory baddr = bytes(addr);
 
+        // Check length
         if (baddr.length != QUBIC_ACCOUNT_LENGTH) {
             return false;
         }
 
+        // Check that address is not all zeros or all same character
+        bytes1 firstChar = baddr[0];
+        bool allSame = true;
+        bool allZeros = true;
+
+        // Validate characters and check for patterns
         for (uint i = 0; i < QUBIC_ACCOUNT_LENGTH; i++) {
             bytes1 char = baddr[i];
 
+            // Only allow alphanumeric uppercase
             if (
                 !(char >= 0x30 && char <= 0x39) && // 0-9
                 !(char >= 0x41 && char <= 0x5A) // A-Z
             ) {
                 return false;
             }
+
+            // Check for suspicious patterns
+            if (char != firstChar) {
+                allSame = false;
+            }
+            if (char != 0x30) { // '0'
+                allZeros = false;
+            }
         }
 
+        // Reject obviously invalid patterns
+        if (allSame || allZeros) {
+            return false;
+        }
+
+        // NOTE: Full checksum validation not implemented
+        // The Qubic network will reject invalid addresses during processing
         return true;
     }
 }
