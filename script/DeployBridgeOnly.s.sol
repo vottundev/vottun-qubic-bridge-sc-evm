@@ -5,10 +5,13 @@ import {Script, console} from "forge-std/Script.sol";
 import {QubicToken} from "../src/QubicToken.sol";
 import {QubicBridge} from "../src/QubicBridge.sol";
 
-contract QubicDeployScript is Script {
+contract DeployBridgeOnlyScript is Script {
     function setUp() public {}
 
     function run() public {
+        // EXISTING TOKEN ADDRESS
+        address existingToken = 0x5438615E84178C951C0EB84Ec9Af1045eA2A7C78;
+
         vm.startBroadcast();
 
         // Initial fee 0.05% (2 decimal places: 0.05 * 100 = 5)
@@ -27,9 +30,9 @@ contract QubicDeployScript is Script {
         // Fee recipient (treasury address - same as admin3, can be changed later via multisig)
         address feeRecipient = 0x090378a9c80c5E1Ced85e56B2128c1e514E75357;
 
-        QubicToken token = new QubicToken();
+        // Deploy only the bridge with existing token
         QubicBridge bridge = new QubicBridge(
-            address(token),
+            existingToken,
             baseFee,
             initialAdmins,
             adminThreshold,
@@ -37,16 +40,18 @@ contract QubicDeployScript is Script {
             feeRecipient
         );
 
-        token.addOperator(address(bridge));
-
         vm.stopBroadcast();
 
-        console.log("Token: %s", address(token));
-        console.log("Bridge: %s", address(bridge));
-        console.log("Admin 1: %s", initialAdmins[0]);
-        console.log("Admin 2: %s", initialAdmins[1]);
-        console.log("Admin 3: %s", initialAdmins[2]);
+        console.log("========================================");
+        console.log("DEPLOYMENT SUCCESSFUL!");
+        console.log("========================================");
+        console.log("Existing Token: %s", existingToken);
+        console.log("New Bridge: %s", address(bridge));
         console.log("Admin Threshold: %s", adminThreshold);
         console.log("Manager Threshold: %s", managerThreshold);
+        console.log("");
+        console.log("IMPORTANT: You need to manually add the bridge as operator to the token:");
+        console.log("Call token.addOperator(%s) as admin", address(bridge));
+        console.log("========================================");
     }
 }

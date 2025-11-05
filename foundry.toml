@@ -4,4 +4,15 @@ out = "out"
 libs = ["lib"]
 optimizer_runs = 20_000
 
+# RPC endpoints
+[rpc_endpoints]
+sepolia = "${SEPOLIA_RPC_URL}"
+base_sepolia = "${BASE_SEPOLIA_RPC_URL}"
+rsk_testnet = "${RSK_RPC_URL}"
+
+# Etherscan API keys
+[etherscan]
+sepolia = { key = "${ETHERSCAN_API_KEY}" }
+base_sepolia = { key = "${BASESCAN_API_KEY}" }
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

@@ -27,22 +27,63 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
     mapping(uint256 => bool) pushOrders;
 
     /**
+     * @notice Multisig State
+     */
+    /// @notice Proposal structure for multisig actions
+    struct Proposal {
+        bytes32 proposalId;
+        address proposer;
+        bytes data;
+        uint256 approvalCount;
+        bool executed;
+        uint256 createdAt;
+        bytes32 roleRequired; // ADMIN or MANAGER role
+        mapping(address => bool) hasApproved;
+    }
+
+    /// @notice Multisig configuration
+    uint256 public adminThreshold; // Number of admin approvals required
+    uint256 public managerThreshold; // Number of manager approvals required
+
+    /// @notice Mapping of proposal ID to Proposal
+    mapping(bytes32 => Proposal) public proposals;
+
+    /// @notice Array of pending proposal IDs for enumeration
+    bytes32[] public pendingProposals;
+
+    /**
      * @notice Constants
      */
     address public immutable token;
+    address public feeRecipient; // Wallet that receives all bridge fees
     bytes32 constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
     bytes32 constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
     uint8 constant QUBIC_ACCOUNT_LENGTH = 60;
+    uint8 constant MAX_ADMINS = 3;
+    uint8 constant MAX_MANAGERS = 3;
+
+    /**
+     * @notice Mapping of function selectors to required roles
+     * This prevents privilege escalation by enforcing correct role for each function
+     */
+    mapping(bytes4 => bytes32) public functionRoles;
+
+    /**
+     * @notice Tracks which selectors are registered to distinguish from default bytes32(0)
+     */
+    mapping(bytes4 => bool) public isFunctionRegistered;
 
     /**
      * @notice Events
      */
-    event AdminUpdated(address indexed oldAdmin, address indexed newAdmin);
+    event AdminAdded(address indexed admin);
+    event AdminRemoved(address indexed admin);
     event ManagerAdded(address indexed manager);
     event ManagerRemoved(address indexed manager);
     event OperatorAdded(address indexed operator);
     event OperatorRemoved(address indexed operator);
     event BaseFeeUpdated(uint256 baseFee);
+    event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
     event OrderCreated(
         uint256 indexed orderId, address indexed originAccount, string indexed destinationAccount, uint256 amount
     );
@@ -59,6 +100,16 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
     event EmergencyEtherWithdrawn(address to, uint256 amount);
 
     /**
+     * @notice Multisig Events
+     */
+    event ProposalCreated(bytes32 indexed proposalId, address indexed proposer, bytes data, bytes32 roleRequired);
+    event ProposalApproved(bytes32 indexed proposalId, address indexed approver, uint256 approvalCount);
+    event ProposalExecuted(bytes32 indexed proposalId, address indexed executor);
+    event ProposalCancelled(bytes32 indexed proposalId, address indexed canceller);
+    event AdminThresholdUpdated(uint256 newThreshold);
+    event ManagerThresholdUpdated(uint256 newThreshold);
+
+    /**
      * @notice Custom Errors
      */
     error InvalidAddress();
@@ -66,7 +117,6 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
     error InvalidDestinationAccount();
     error InvalidAmount();
     error InvalidFeePct();
-    error InvalidFeeRecipient();
     error InvalidOrderId();
     error InsufficientApproval();
     error AlreadyConfirmed();
@@ -75,29 +125,151 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
     error EtherTransferFailed();
 
     /**
-     * @notice Constructor
-     * @param _token Address of the bridge token
-     * @param _baseFee Base fee (2 decimal places)
+     * @notice Multisig Errors
      */
-    constructor(address _token, uint256 _baseFee) {
-        token = _token;
-        baseFee = _baseFee;
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _grantRole(MANAGER_ROLE, msg.sender);
+    error ProposalNotFound();
+    error ProposalAlreadyExecuted();
+    error ProposalAlreadyApproved();
+    error InsufficientApprovals();
+    error InvalidThreshold();
+    error UnauthorizedRole();
+    error OnlyProposal();
+    error MaxAdminsReached();
+    error MaxManagersReached();
+    error ThresholdExceedsCount();
+
+    /**
+     * @notice Internal helper to register function selector to role mapping
+     */
+    function _registerFunction(string memory signature, bytes32 role) internal {
+        bytes4 selector = bytes4(keccak256(bytes(signature)));
+        functionRoles[selector] = role;
+        isFunctionRegistered[selector] = true;
     }
 
     /**
-     * @notice Sets the admin
-     * @param newAdmin Address of the new admin
+     * @notice Initialize all function role mappings
      */
-    function setAdmin(address newAdmin) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function _initializeFunctionRoles() internal {
+        // Admin functions (DEFAULT_ADMIN_ROLE = bytes32(0))
+        _registerFunction("addAdmin(address)", DEFAULT_ADMIN_ROLE);
+        _registerFunction("removeAdmin(address)", DEFAULT_ADMIN_ROLE);
+        _registerFunction("addManager(address)", DEFAULT_ADMIN_ROLE);
+        _registerFunction("removeManager(address)", DEFAULT_ADMIN_ROLE);
+        _registerFunction("setBaseFee(uint256)", DEFAULT_ADMIN_ROLE);
+        _registerFunction("setFeeRecipient(address)", DEFAULT_ADMIN_ROLE);
+        _registerFunction("emergencyPause()", DEFAULT_ADMIN_ROLE);
+        _registerFunction("emergencyUnpause()", DEFAULT_ADMIN_ROLE);
+        _registerFunction("emergencyTokenWithdraw(address,address,uint256)", DEFAULT_ADMIN_ROLE);
+        _registerFunction("emergencyEtherWithdraw(address)", DEFAULT_ADMIN_ROLE);
+        _registerFunction("setAdminThreshold(uint256)", DEFAULT_ADMIN_ROLE);
+        _registerFunction("setManagerThreshold(uint256)", DEFAULT_ADMIN_ROLE);
+
+        // Manager functions
+        _registerFunction("addOperator(address)", MANAGER_ROLE);
+        _registerFunction("removeOperator(address)", MANAGER_ROLE);
+    }
+
+    /**
+     * @notice Modifiers
+     */
+    /// @notice Ensures function can only be called via executeProposal
+    modifier onlyProposal() {
+        if (msg.sender != address(this)) {
+            revert OnlyProposal();
+        }
+        _;
+    }
+
+    /**
+     * @notice Constructor
+     * @param _token Address of the bridge token
+     * @param _baseFee Base fee (2 decimal places)
+     * @param _admins Array of initial admin addresses (max 3)
+     * @param _adminThreshold Number of admin approvals required for admin actions
+     * @param _managerThreshold Number of manager approvals required for manager actions
+     * @param _feeRecipient Address that receives all bridge fees
+     */
+    constructor(
+        address _token,
+        uint256 _baseFee,
+        address[] memory _admins,
+        uint256 _adminThreshold,
+        uint256 _managerThreshold,
+        address _feeRecipient
+    ) {
+        if (_admins.length == 0 || _admins.length > MAX_ADMINS) {
+            revert InvalidThreshold();
+        }
+        if (_adminThreshold == 0 || _adminThreshold > _admins.length) {
+            revert InvalidThreshold();
+        }
+        if (_managerThreshold == 0 || _managerThreshold > MAX_MANAGERS) {
+            revert InvalidThreshold();
+        }
+        if (_feeRecipient == address(0)) {
+            revert InvalidAddress();
+        }
+
+        token = _token;
+        baseFee = _baseFee;
+        adminThreshold = _adminThreshold;
+        managerThreshold = _managerThreshold;
+        feeRecipient = _feeRecipient;
+
+        // Grant admin role to all initial admins
+        for (uint256 i = 0; i < _admins.length; i++) {
+            if (_admins[i] == address(0)) {
+                revert InvalidAddress();
+            }
+            _grantRole(DEFAULT_ADMIN_ROLE, _admins[i]);
+        }
+
+        // Initialize function selector to role mapping
+        _initializeFunctionRoles();
+    }
+
+    /**
+     * @notice Adds a new admin (max 3 admins)
+     * @param newAdmin Address of the new admin
+     * @return True if the role was granted, false otherwise
+     */
+    function addAdmin(address newAdmin) external onlyProposal returns (bool) {
         if (newAdmin == address(0)) {
             revert InvalidAddress();
         }
-        address admin = getRoleMember(DEFAULT_ADMIN_ROLE, 0);
-        _revokeRole(DEFAULT_ADMIN_ROLE, admin);
-        _grantRole(DEFAULT_ADMIN_ROLE, newAdmin);
-        emit AdminUpdated(admin, newAdmin);
+
+        // Count current admins (excluding contract itself)
+        uint256 adminCount = 0;
+        uint256 memberCount = getRoleMemberCount(DEFAULT_ADMIN_ROLE);
+        for (uint256 i = 0; i < memberCount; i++) {
+            address member = getRoleMember(DEFAULT_ADMIN_ROLE, i);
+            if (member != address(this)) {
+                adminCount++;
+            }
+        }
+
+        if (adminCount >= MAX_ADMINS) {
+            revert MaxAdminsReached();
+        }
+
+        bool success = _grantRole(DEFAULT_ADMIN_ROLE, newAdmin);
+        emit AdminAdded(newAdmin);
+        return success;
+    }
+
+    /**
+     * @notice Removes an admin
+     * @param admin Address of the admin to remove
+     * @return True if the role was revoked, false otherwise
+     */
+    function removeAdmin(address admin) external onlyProposal returns (bool) {
+        if (admin == address(this)) {
+            revert InvalidAddress();
+        }
+        bool success = _revokeRole(DEFAULT_ADMIN_ROLE, admin);
+        emit AdminRemoved(admin);
+        return success;
     }
 
     /**
@@ -105,10 +277,25 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
      * @param newManager Address of the new manager
      * @return True if the role was granted, false otherwise
      */
-    function addManager(address newManager) external onlyRole(DEFAULT_ADMIN_ROLE) returns (bool) {
+    function addManager(address newManager) external onlyProposal returns (bool) {
         if (newManager == address(0)) {
             revert InvalidAddress();
         }
+
+        // Count current managers (excluding contract itself)
+        uint256 managerCount = 0;
+        uint256 memberCount = getRoleMemberCount(MANAGER_ROLE);
+        for (uint256 i = 0; i < memberCount; i++) {
+            address member = getRoleMember(MANAGER_ROLE, i);
+            if (member != address(this)) {
+                managerCount++;
+            }
+        }
+
+        if (managerCount >= MAX_MANAGERS) {
+            revert MaxManagersReached();
+        }
+
         bool success = _grantRole(MANAGER_ROLE, newManager);
         emit ManagerAdded(newManager);
         return success;
@@ -119,7 +306,7 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
      * @param manager Address of the manager to remove
      * @return True if the role was revoked, false otherwise
      */
-    function removeManager(address manager) external onlyRole(DEFAULT_ADMIN_ROLE) returns (bool) {
+    function removeManager(address manager) external onlyProposal returns (bool) {
         bool success = _revokeRole(MANAGER_ROLE, manager);
         emit ManagerRemoved(manager);
         return success;
@@ -130,7 +317,7 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
      * @param newOperator Address of the new operator
      * @return True if the role was granted, false otherwise
      */
-    function addOperator(address newOperator) external onlyRole(MANAGER_ROLE) returns (bool) {
+    function addOperator(address newOperator) external onlyProposal returns (bool) {
         if (newOperator == address(0)) {
             revert InvalidAddress();
         }
@@ -144,7 +331,7 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
      * @param operator Address of the operator to remove
      * @return True if the role was revoked, false otherwise
      */
-    function removeOperator(address operator) external onlyRole(MANAGER_ROLE) returns (bool) {
+    function removeOperator(address operator) external onlyProposal returns (bool) {
         bool success = _revokeRole(OPERATOR_ROLE, operator);
         emit OperatorRemoved(operator);
         return success;
@@ -154,12 +341,25 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
      * @notice Sets the base fee
      * @param _baseFee Amount of the base fee (2 decimal places)
      */
-    function setBaseFee(uint256 _baseFee) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setBaseFee(uint256 _baseFee) external onlyProposal {
         if (_baseFee > 100 * 100) {
             revert InvalidBaseFee();
         }
         baseFee = _baseFee;
         emit BaseFeeUpdated(_baseFee);
+    }
+
+    /**
+     * @notice Sets the fee recipient address
+     * @param newFeeRecipient Address that will receive all bridge fees
+     */
+    function setFeeRecipient(address newFeeRecipient) external onlyProposal {
+        if (newFeeRecipient == address(0)) {
+            revert InvalidAddress();
+        }
+        address oldRecipient = feeRecipient;
+        feeRecipient = newFeeRecipient;
+        emit FeeRecipientUpdated(oldRecipient, newFeeRecipient);
     }
 
     /**
@@ -201,18 +401,13 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
     }
 
     /**
-     * @notice Called by the operator backend to confirm a transfer-out order - CENTRALIZATION RISK
-     * @dev AUDIT NOTE (KS–VB–F–04): Operators can arbitrarily set feeRecipient address,
-     *      allowing them to direct transfer fees to themselves or any address they control.
-     *      This creates risk of fee extraction and self-dealing.
+     * @notice Called by the operator backend to confirm a transfer-out order
      * @param orderId Order ID
      * @param feePct Percentage of the baseFee to apply (no decimal places)
-     * @param feeRecipient Address of the recipient of the transfer fee
      */
     function confirmOrder(
         uint256 orderId,
-        uint256 feePct,
-        address feeRecipient
+        uint256 feePct
     ) external onlyRole(OPERATOR_ROLE) nonReentrant {
         PullOrder memory order = pullOrders[orderId];
         uint256 amount = uint256(order.amount);
@@ -226,9 +421,6 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
         if (feePct > 100) {
             revert InvalidFeePct();
         }
-        if (feeRecipient == address(0)) {
-            revert InvalidFeeRecipient();
-        }
 
         uint256 fee = getTransferFee(amount, feePct);
         uint256 amountAfterFee = amount - fee;
@@ -236,7 +428,7 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
         // Mark the order done
         pullOrders[orderId].done = true;
 
-        // Transfer the fee to the recipient
+        // Transfer the fee to the configured recipient
         if (fee > 0) {
             QubicToken(token).transfer(feeRecipient, fee);
         }
@@ -248,17 +440,13 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
     }
 
     /**
-     * @notice Called by the operator backend to revert a transfer-out order - CENTRALIZATION RISK
-     * @dev AUDIT NOTE (KS–VB–F–04): Same centralization risks as confirmOrder.
-     *      Operators can direct fees to any address.
+     * @notice Called by the operator backend to revert a transfer-out order
      * @param orderId Order ID
      * @param feePct Percentage of the baseFee to apply (no decimal places)
-     * @param feeRecipient Address of the recipient of the transfer fee
      */
     function revertOrder(
         uint256 orderId,
-        uint256 feePct,
-        address feeRecipient
+        uint256 feePct
     ) external onlyRole(OPERATOR_ROLE) nonReentrant {
         PullOrder memory order = pullOrders[orderId];
         uint256 amount = uint256(order.amount);
@@ -272,9 +460,6 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
         if (feePct > 100) {
             revert InvalidFeePct();
         }
-        if (feeRecipient == address(0)) {
-            revert InvalidFeeRecipient();
-        }
 
         // Delete the order
         delete pullOrders[orderId];
@@ -282,7 +467,7 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
         uint256 fee = getTransferFee(amount, feePct);
         uint256 amountAfterFee = amount - fee;
 
-        // Transfer the fee to the recipient
+        // Transfer the fee to the configured recipient
         if (fee > 0) {
             QubicToken(token).transfer(feeRecipient, fee);
         }
@@ -294,23 +479,19 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
     }
 
     /**
-     * @notice Called by the operator backend to execute a transfer-in order initiated in the origin network - CENTRALIZATION RISK
-     * @dev AUDIT NOTE (KS–VB–F–04): Same centralization risks as confirmOrder and revertOrder.
-     *      Operators have authority to confirm, revert, and execute orders with arbitrary fee recipients.
+     * @notice Called by the operator backend to execute a transfer-in order initiated in the origin network
      * @param originOrderId Order ID in the origin network
      * @param originAccount Origin account in the origin network
      * @param destinationAccount Destination account in this network
      * @param amount Amount of QUBIC to send
      * @param feePct Percentage of the baseFee to apply (no decimal places)
-     * @param feeRecipient Address of the recipient of the transfer fee
      */
     function executeOrder(
         uint256 originOrderId,
         string calldata originAccount,
         address destinationAccount,
         uint256 amount,
-        uint256 feePct,
-        address feeRecipient
+        uint256 feePct
     ) external onlyRole(OPERATOR_ROLE) nonReentrant {
         if (destinationAccount == address(0)) {
             revert InvalidDestinationAccount();
@@ -320,9 +501,6 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
         }
         if (pushOrders[originOrderId]) {
             revert AlreadyExecuted();
-        }
-        if (feeRecipient == address(0)) {
-            revert InvalidFeeRecipient();
         }
 
         uint256 fee = getTransferFee(amount, feePct);
@@ -335,7 +513,7 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
         // Mark the order as executed
         pushOrders[originOrderId] = true;
 
-        // Mint the fee to the recipient
+        // Mint the fee to the configured recipient
         if (fee > 0) {
             QubicToken(token).mint(feeRecipient, fee);
         }
@@ -355,7 +533,7 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
      *      - Implement timelock for critical operations
      *      - Consider governance mechanisms for pause decisions
      */
-    function emergencyPause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function emergencyPause() external onlyProposal {
         _pause();
     }
 
@@ -363,7 +541,7 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
      * @notice Emergency unpause function - CENTRALIZATION RISK
      * @dev AUDIT NOTE (KS–VB–F–04): Admin can unilaterally unpause the bridge
      */
-    function emergencyUnpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function emergencyUnpause() external onlyProposal {
         _unpause();
     }
 
@@ -378,32 +556,270 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
      *      - Consider timelock mechanisms for withdrawals
      *      - Regular security audits of privileged accounts
      * @param tokenAddress Address of the token to withdraw
+     * @param recipient Address to receive the withdrawn tokens
      * @param amount Amount of tokens to withdraw
      */
-    function emergencyTokenWithdraw(address tokenAddress, uint256 amount) external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
-        (bool success, ) = tokenAddress.call(abi.encodeWithSignature("transfer(address,uint256)", msg.sender, amount));
+    function emergencyTokenWithdraw(address tokenAddress, address recipient, uint256 amount) external onlyProposal {
+        if (recipient == address(0)) {
+            revert InvalidAddress();
+        }
+
+        (bool success, ) = tokenAddress.call(abi.encodeWithSignature("transfer(address,uint256)", recipient, amount));
 
         if (!success) {
             revert TokenTransferFailed();
         }
 
-        emit EmergencyTokenWithdrawn(tokenAddress, msg.sender, amount);
+        emit EmergencyTokenWithdrawn(tokenAddress, recipient, amount);
     }
 
     /**
      * @notice Called by the admin to withdraw all Ether in case of emergency - CENTRALIZATION RISK
      * @dev AUDIT NOTE (KS–VB–F–04): Admin can withdraw ALL Ether from the contract.
      *      Same centralization risks apply as with emergencyTokenWithdraw.
+     * @param recipient Address to receive the withdrawn Ether
      */
-    function emergencyEtherWithdraw() external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
+    function emergencyEtherWithdraw(address recipient) external onlyProposal {
+        if (recipient == address(0)) {
+            revert InvalidAddress();
+        }
+
         uint256 amount = address(this).balance;
-        (bool success, ) = msg.sender.call{value: amount}("");
+        (bool success, ) = recipient.call{value: amount}("");
 
         if (!success) {
             revert EtherTransferFailed();
         }
 
-        emit EmergencyEtherWithdrawn(msg.sender, amount);
+        emit EmergencyEtherWithdrawn(recipient, amount);
+    }
+
+    /**
+     * @notice MULTISIG FUNCTIONS
+     */
+
+    /**
+     * @notice Creates a proposal for an admin or manager action
+     * @param data The encoded function call data
+     * @param roleRequired The role required to approve (DEFAULT_ADMIN_ROLE or MANAGER_ROLE)
+     * @return proposalId The ID of the created proposal
+     */
+    function proposeAction(bytes calldata data, bytes32 roleRequired) external returns (bytes32) {
+        // Verify caller has the required role
+        if (!hasRole(roleRequired, msg.sender)) {
+            revert UnauthorizedRole();
+        }
+
+        // Verify roleRequired is valid
+        if (roleRequired != DEFAULT_ADMIN_ROLE && roleRequired != MANAGER_ROLE) {
+            revert UnauthorizedRole();
+        }
+
+        // Extract function selector from data
+        if (data.length < 4) {
+            revert InvalidAddress(); // Reusing error for invalid data
+        }
+        bytes4 selector = bytes4(data[:4]);
+
+        // Verify the function is registered and matches the required role
+        if (!isFunctionRegistered[selector]) {
+            revert UnauthorizedRole(); // Function not registered
+        }
+        bytes32 expectedRole = functionRoles[selector];
+        if (expectedRole != roleRequired) {
+            revert UnauthorizedRole(); // Role mismatch
+        }
+
+        // Generate proposal ID
+        bytes32 proposalId = keccak256(abi.encodePacked(data, block.timestamp, msg.sender, block.number));
+
+        // Initialize proposal
+        Proposal storage proposal = proposals[proposalId];
+        proposal.proposalId = proposalId;
+        proposal.proposer = msg.sender;
+        proposal.data = data;
+        proposal.approvalCount = 0;
+        proposal.executed = false;
+        proposal.createdAt = block.timestamp;
+        proposal.roleRequired = roleRequired;
+
+        // Add to pending proposals
+        pendingProposals.push(proposalId);
+
+        emit ProposalCreated(proposalId, msg.sender, data, roleRequired);
+
+        return proposalId;
+    }
+
+    /**
+     * @notice Approves a pending proposal
+     * @param proposalId The ID of the proposal to approve
+     */
+    function approveProposal(bytes32 proposalId) external {
+        Proposal storage proposal = proposals[proposalId];
+
+        // Verify proposal exists
+        if (proposal.proposer == address(0)) {
+            revert ProposalNotFound();
+        }
+
+        // Verify not already executed
+        if (proposal.executed) {
+            revert ProposalAlreadyExecuted();
+        }
+
+        // Verify caller has required role
+        if (!hasRole(proposal.roleRequired, msg.sender)) {
+            revert UnauthorizedRole();
+        }
+
+        // Verify not already approved by this address
+        if (proposal.hasApproved[msg.sender]) {
+            revert ProposalAlreadyApproved();
+        }
+
+        // Record approval
+        proposal.hasApproved[msg.sender] = true;
+        proposal.approvalCount++;
+
+        emit ProposalApproved(proposalId, msg.sender, proposal.approvalCount);
+    }
+
+    /**
+     * @notice Executes a proposal if it has enough approvals
+     * @param proposalId The ID of the proposal to execute
+     */
+    function executeProposal(bytes32 proposalId) external nonReentrant {
+        Proposal storage proposal = proposals[proposalId];
+
+        // Verify proposal exists
+        if (proposal.proposer == address(0)) {
+            revert ProposalNotFound();
+        }
+
+        // Verify not already executed
+        if (proposal.executed) {
+            revert ProposalAlreadyExecuted();
+        }
+
+        // Check threshold (anyone can execute if threshold is met)
+        uint256 threshold = proposal.roleRequired == DEFAULT_ADMIN_ROLE ? adminThreshold : managerThreshold;
+        if (proposal.approvalCount < threshold) {
+            revert InsufficientApprovals();
+        }
+
+        // Mark as executed
+        proposal.executed = true;
+
+        // Remove from pending proposals
+        _removePendingProposal(proposalId);
+
+        // Execute the proposal
+        (bool success, ) = address(this).call(proposal.data);
+        if (!success) {
+            revert("Proposal execution failed");
+        }
+
+        emit ProposalExecuted(proposalId, msg.sender);
+    }
+
+    /**
+     * @notice Cancels a pending proposal (only proposer can cancel)
+     * @param proposalId The ID of the proposal to cancel
+     */
+    function cancelProposal(bytes32 proposalId) external {
+        Proposal storage proposal = proposals[proposalId];
+
+        // Verify proposal exists
+        if (proposal.proposer == address(0)) {
+            revert ProposalNotFound();
+        }
+
+        // Verify not already executed
+        if (proposal.executed) {
+            revert ProposalAlreadyExecuted();
+        }
+
+        // Only proposer or admin can cancel
+        if (msg.sender != proposal.proposer && !hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) {
+            revert UnauthorizedRole();
+        }
+
+        // Mark as executed (cancelled)
+        proposal.executed = true;
+
+        // Remove from pending proposals
+        _removePendingProposal(proposalId);
+
+        emit ProposalCancelled(proposalId, msg.sender);
+    }
+
+    /**
+     * @notice Updates the admin threshold
+     * @param newThreshold New threshold value
+     */
+    function setAdminThreshold(uint256 newThreshold) external onlyProposal {
+        if (newThreshold == 0) {
+            revert InvalidThreshold();
+        }
+
+        // Count current admins (excluding contract itself)
+        uint256 adminCount = 0;
+        uint256 memberCount = getRoleMemberCount(DEFAULT_ADMIN_ROLE);
+        for (uint256 i = 0; i < memberCount; i++) {
+            address member = getRoleMember(DEFAULT_ADMIN_ROLE, i);
+            if (member != address(this)) {
+                adminCount++;
+            }
+        }
+
+        if (newThreshold > adminCount || newThreshold > MAX_ADMINS) {
+            revert ThresholdExceedsCount();
+        }
+
+        adminThreshold = newThreshold;
+        emit AdminThresholdUpdated(newThreshold);
+    }
+
+    /**
+     * @notice Updates the manager threshold
+     * @param newThreshold New threshold value
+     */
+    function setManagerThreshold(uint256 newThreshold) external onlyProposal {
+        if (newThreshold == 0) {
+            revert InvalidThreshold();
+        }
+
+        // Count current managers (excluding contract itself)
+        uint256 managerCount = 0;
+        uint256 memberCount = getRoleMemberCount(MANAGER_ROLE);
+        for (uint256 i = 0; i < memberCount; i++) {
+            address member = getRoleMember(MANAGER_ROLE, i);
+            if (member != address(this)) {
+                managerCount++;
+            }
+        }
+
+        if (newThreshold > managerCount || newThreshold > MAX_MANAGERS) {
+            revert ThresholdExceedsCount();
+        }
+
+        managerThreshold = newThreshold;
+        emit ManagerThresholdUpdated(newThreshold);
+    }
+
+    /**
+     * @notice Internal function to remove a proposal from pending list
+     * @param proposalId The proposal ID to remove
+     */
+    function _removePendingProposal(bytes32 proposalId) internal {
+        for (uint256 i = 0; i < pendingProposals.length; i++) {
+            if (pendingProposals[i] == proposalId) {
+                pendingProposals[i] = pendingProposals[pendingProposals.length - 1];
+                pendingProposals.pop();
+                break;
+            }
+        }
     }
 
     /**
@@ -434,11 +850,11 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
     }
 
     /**
-     * @notice Gets the admin
-     * @return Admin address
+     * @notice Gets all admins (excluding the contract itself)
+     * @return Array of admin addresses
      */
-    function getAdmin() external view returns (address) {
-        return getRoleMember(DEFAULT_ADMIN_ROLE, 0);
+    function getAdmins() external view returns (address[] memory) {
+        return getRoleMembers(DEFAULT_ADMIN_ROLE);
     }
 
     /**
@@ -455,6 +871,53 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
      */
     function getOperators() external view returns (address[] memory) {
         return getRoleMembers(OPERATOR_ROLE);
+    }
+
+    /**
+     * @notice Gets all pending proposal IDs
+     * @return Array of pending proposal IDs
+     */
+    function getPendingProposals() external view returns (bytes32[] memory) {
+        return pendingProposals;
+    }
+
+    /**
+     * @notice Gets proposal details
+     * @param proposalId The proposal ID
+     * @return proposer The address that created the proposal
+     * @return data The encoded function call data
+     * @return approvalCount Number of approvals received
+     * @return executed Whether the proposal has been executed
+     * @return createdAt Timestamp when proposal was created
+     * @return roleRequired The role required to approve this proposal
+     */
+    function getProposal(bytes32 proposalId) external view returns (
+        address proposer,
+        bytes memory data,
+        uint256 approvalCount,
+        bool executed,
+        uint256 createdAt,
+        bytes32 roleRequired
+    ) {
+        Proposal storage proposal = proposals[proposalId];
+        return (
+            proposal.proposer,
+            proposal.data,
+            proposal.approvalCount,
+            proposal.executed,
+            proposal.createdAt,
+            proposal.roleRequired
+        );
+    }
+
+    /**
+     * @notice Checks if an address has approved a proposal
+     * @param proposalId The proposal ID
+     * @param approver The address to check
+     * @return Whether the address has approved the proposal
+     */
+    function hasApprovedProposal(bytes32 proposalId, address approver) external view returns (bool) {
+        return proposals[proposalId].hasApproved[approver];
     }
 
     /**
@@ -479,7 +942,7 @@ contract QubicBridge is AccessControlEnumerable, ReentrancyGuardTransient, Pausa
         bool allZeros = true;
 
         // Validate characters and check for patterns
-        for (uint i = 0; i < QUBIC_ACCOUNT_LENGTH; i++) {
+        for (uint256 i = 0; i < QUBIC_ACCOUNT_LENGTH; i++) {
             bytes1 char = baddr[i];
 
             // Only allow alphanumeric uppercase

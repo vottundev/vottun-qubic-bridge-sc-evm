@@ -12,3 +12,15 @@ docs/
 
 # Dotenv file
 .env
+Azure-Tasks-Mapping.md
+.gitignore
+CLAUDE.md
+FRONTEND_INTEGRATION.md
+info.md
+M2.md
+MULTISIG_USAGE.md
+README - copia.md
+BACKEND_INTEGRATION.md
+SECURITY_IMPROVEMENTS.md
+Technical.md
+vtn.h

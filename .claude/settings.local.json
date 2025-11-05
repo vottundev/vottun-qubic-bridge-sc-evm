@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(forge build:*)",
+      "Bash(forge test:*)",
+      "Bash(forge coverage:*)",
+      "Bash(cat:*)",
+      "Bash(forge script:*)",
+      "Bash(source .env)",
+      "Bash(cast wallet address:*)",
+      "Bash(forge verify-contract:*)",
+      "Bash(rm:*)",
+      "Bash(forge inspect:*)",
+      "Bash(cast call:*)",
+      "Bash(cast sig:*)",
+      "Bash(cast keccak:*)",
+      "Bash(cast calldata:*)",
+      "Bash(cast code:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
