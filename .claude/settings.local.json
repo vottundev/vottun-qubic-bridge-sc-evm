@@ -15,7 +15,8 @@
       "Bash(cast sig:*)",
       "Bash(cast keccak:*)",
       "Bash(cast calldata:*)",
-      "Bash(cast code:*)"
+      "Bash(cast code:*)",
+      "Bash(git remote set-url:*)"
     ],
     "deny": [],
     "ask": []
