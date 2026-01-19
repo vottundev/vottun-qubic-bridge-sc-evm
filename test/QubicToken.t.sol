@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {
+    ERC1967Proxy
+} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Test, console} from "forge-std/Test.sol";
 import {QubicToken} from "../src/QubicToken.sol";
 
 contract QubicProxy is ERC1967Proxy {
-    constructor(address _logic, bytes memory _data) ERC1967Proxy(_logic, _data) {}
+    constructor(
+        address _logic,
+        bytes memory _data
+    ) ERC1967Proxy(_logic, _data) {}
 }
 
 contract QubicTokenTest is Test {
@@ -45,8 +50,12 @@ contract QubicTokenTest is Test {
 
     function test_BurnTokens() public {
         vm.startPrank(operator);
-        token.mint(bob, 100);
-        token.burn(bob, 100);
-        assertEq(token.balanceOf(bob), 0);
+        // Mint tokens to operator
+        token.mint(operator, 100);
+        assertEq(token.balanceOf(operator), 100);
+
+        // Burn tokens from operator's own balance
+        token.burn(100);
+        assertEq(token.balanceOf(operator), 0);
     }
 }

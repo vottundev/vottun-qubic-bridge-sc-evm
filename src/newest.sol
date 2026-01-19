@@ -15,8 +15,6 @@ contract QubicBridge is
      * @notice State
      */
     uint256 public baseFee;
-    uint256 public minTransferAmount;
-    uint256 public maxTransferAmount;
 
     /// @notice Outgoing orders generated from this contract
     struct PullOrder {
@@ -93,8 +91,6 @@ contract QubicBridge is
         address indexed oldRecipient,
         address indexed newRecipient
     );
-    event MinTransferAmountUpdated(uint256 minAmount);
-    event MaxTransferAmountUpdated(uint256 maxAmount);
     event OrderCreated(
         uint256 indexed orderId,
         address indexed originAccount,
@@ -158,8 +154,6 @@ contract QubicBridge is
     error InvalidBaseFee();
     error InvalidDestinationAccount();
     error InvalidAmount();
-    error AmountBelowMinimum();
-    error AmountExceedsMaximum();
     error InvalidFeePct();
     error InvalidOrderId();
     error InsufficientApproval();
@@ -218,8 +212,6 @@ contract QubicBridge is
         // Manager functions
         _registerFunction("addOperator(address)", MANAGER_ROLE);
         _registerFunction("removeOperator(address)", MANAGER_ROLE);
-        _registerFunction("setMinTransferAmount(uint256)", DEFAULT_ADMIN_ROLE);
-        _registerFunction("setMaxTransferAmount(uint256)", DEFAULT_ADMIN_ROLE);
     }
 
     /**
@@ -241,8 +233,6 @@ contract QubicBridge is
      * @param _adminThreshold Number of admin approvals required for admin actions
      * @param _managerThreshold Number of manager approvals required for manager actions
      * @param _feeRecipient Address that receives all bridge fees
-     * @param _minTransferAmount Minimum transfer amount (0 = no minimum)
-     * @param _maxTransferAmount Maximum transfer amount (0 = no maximum)
      */
     constructor(
         address _token,
@@ -250,9 +240,7 @@ contract QubicBridge is
         address[] memory _admins,
         uint256 _adminThreshold,
         uint256 _managerThreshold,
-        address _feeRecipient,
-        uint256 _minTransferAmount,
-        uint256 _maxTransferAmount
+        address _feeRecipient
     ) {
         if (_admins.length == 0 || _admins.length > MAX_ADMINS) {
             revert InvalidThreshold();
@@ -272,8 +260,6 @@ contract QubicBridge is
         adminThreshold = _adminThreshold;
         managerThreshold = _managerThreshold;
         feeRecipient = _feeRecipient;
-        minTransferAmount = _minTransferAmount;
-        maxTransferAmount = _maxTransferAmount;
 
         // Grant admin role to all initial admins
         for (uint256 i = 0; i < _admins.length; i++) {
@@ -460,28 +446,6 @@ contract QubicBridge is
     }
 
     /**
-     * @notice Sets the minimum transfer amount
-     * @param _minTransferAmount Minimum transfer amount (0 = no minimum)
-     */
-    function setMinTransferAmount(
-        uint256 _minTransferAmount
-    ) external onlyProposal {
-        minTransferAmount = _minTransferAmount;
-        emit MinTransferAmountUpdated(_minTransferAmount);
-    }
-
-    /**
-     * @notice Sets the maximum transfer amount
-     * @param _maxTransferAmount Maximum transfer amount (0 = no maximum)
-     */
-    function setMaxTransferAmount(
-        uint256 _maxTransferAmount
-    ) external onlyProposal {
-        maxTransferAmount = _maxTransferAmount;
-        emit MaxTransferAmountUpdated(_maxTransferAmount);
-    }
-
-    /**
      * @notice Called by the user to initiate a transfer-out order
      * @param destinationAccount Destination account in Qubic network
      * @param amount Amount of QUBIC to send
@@ -503,12 +467,6 @@ contract QubicBridge is
         }
         if (amount == 0 || amount > type(uint248).max) {
             revert InvalidAmount();
-        }
-        if (minTransferAmount > 0 && amount < minTransferAmount) {
-            revert AmountBelowMinimum();
-        }
-        if (maxTransferAmount > 0 && amount > maxTransferAmount) {
-            revert AmountExceedsMaximum();
         }
 
         address originAccount = msg.sender;
@@ -639,13 +597,6 @@ contract QubicBridge is
         }
         if (pushOrders[originOrderId]) {
             revert AlreadyExecuted();
-        }
-
-        if (minTransferAmount > 0 && amount < minTransferAmount) {
-            revert AmountBelowMinimum();
-        }
-        if (maxTransferAmount > 0 && amount > maxTransferAmount) {
-            revert AmountExceedsMaximum();
         }
 
         uint256 fee = getTransferFee(amount, feePct);

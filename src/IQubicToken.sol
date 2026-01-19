@@ -14,7 +14,7 @@ interface IQubicToken {
     function addOperator(address operator) external returns (bool);
     function removeOperator(address operator) external returns (bool);
     function mint(address to, uint256 amount) external;
-    function burn(address from, uint256 amount) external;
+    function burn(uint256 amount) external;
 
     // Views
     function getAdmin() external view returns (address);

@@ -21,7 +21,8 @@ contract QubicBridgeTest is Test {
     uint256 testOrderId;
 
     // constants
-    string constant QUBIC_DESTINATION = "FRDMFRRRCQTOUBOKAEJZEPLIOSVBQKYRCWILPZSJJCWNDYVXIMSAUVQFIXOM";
+    string constant QUBIC_DESTINATION =
+        "FRDMFRRRCQTOUBOKAEJZEPLIOSVBQKYRCWILPZSJJCWNDYVXIMSAUVQFIXOM";
     uint256 constant INITIAL_BALANCE = 100_000_000;
     uint256 constant BASE_FEE = 200; // 2%
     uint256 constant OPERATOR_FEE_PCT = 50; // 50%
@@ -35,16 +36,40 @@ contract QubicBridgeTest is Test {
         // Initialize with single admin for testing (threshold=1)
         address[] memory initialAdmins = new address[](1);
         initialAdmins[0] = admin;
-        bridge = new QubicBridge(address(token), BASE_FEE, initialAdmins, ADMIN_THRESHOLD, MANAGER_THRESHOLD, treasury);
+        bridge = new QubicBridge(
+            address(token),
+            BASE_FEE,
+            initialAdmins,
+            ADMIN_THRESHOLD,
+            MANAGER_THRESHOLD,
+            treasury,
+            1000,
+            0
+        );
 
         address[] memory helperAdmins = new address[](1);
         helperAdmins[0] = admin;
-        qubicBridgeHelper = new QubicBridgeHelper(address(token), BASE_FEE, helperAdmins, ADMIN_THRESHOLD, MANAGER_THRESHOLD, treasury);
+        qubicBridgeHelper = new QubicBridgeHelper(
+            address(token),
+            BASE_FEE,
+            helperAdmins,
+            ADMIN_THRESHOLD,
+            MANAGER_THRESHOLD,
+            treasury,
+            1000,
+            0
+        );
 
         // Setup roles using multisig proposal system
         // Add manager via proposal
-        bytes memory addManagerData = abi.encodeWithSelector(bridge.addManager.selector, manager);
-        bytes32 proposalId = bridge.proposeAction(addManagerData, bridge.DEFAULT_ADMIN_ROLE());
+        bytes memory addManagerData = abi.encodeWithSelector(
+            bridge.addManager.selector,
+            manager
+        );
+        bytes32 proposalId = bridge.proposeAction(
+            addManagerData,
+            bridge.DEFAULT_ADMIN_ROLE()
+        );
         bridge.approveProposal(proposalId);
         bridge.executeProposal(proposalId);
 
@@ -52,9 +77,15 @@ contract QubicBridgeTest is Test {
 
         // Add operator via proposal (manager proposes)
         vm.startPrank(manager);
-        bytes memory addOperatorData = abi.encodeWithSelector(bridge.addOperator.selector, operator);
+        bytes memory addOperatorData = abi.encodeWithSelector(
+            bridge.addOperator.selector,
+            operator
+        );
         bytes32 managerRole = keccak256("MANAGER_ROLE");
-        bytes32 operatorProposalId = bridge.proposeAction(addOperatorData, managerRole);
+        bytes32 operatorProposalId = bridge.proposeAction(
+            addOperatorData,
+            managerRole
+        );
         bridge.approveProposal(operatorProposalId);
         bridge.executeProposal(operatorProposalId);
 
@@ -84,8 +115,14 @@ contract QubicBridgeTest is Test {
         vm.startPrank(admin);
 
         // Create and execute proposal
-        bytes memory data = abi.encodeWithSelector(bridge.addAdmin.selector, newAdmin);
-        bytes32 proposalId = bridge.proposeAction(data, bridge.DEFAULT_ADMIN_ROLE());
+        bytes memory data = abi.encodeWithSelector(
+            bridge.addAdmin.selector,
+            newAdmin
+        );
+        bytes32 proposalId = bridge.proposeAction(
+            data,
+            bridge.DEFAULT_ADMIN_ROLE()
+        );
         bridge.approveProposal(proposalId);
 
         vm.expectEmit(address(bridge));
@@ -101,8 +138,14 @@ contract QubicBridgeTest is Test {
         vm.startPrank(admin);
 
         // Create and execute proposal
-        bytes memory data = abi.encodeWithSelector(bridge.setBaseFee.selector, baseFee);
-        bytes32 proposalId = bridge.proposeAction(data, bridge.DEFAULT_ADMIN_ROLE());
+        bytes memory data = abi.encodeWithSelector(
+            bridge.setBaseFee.selector,
+            baseFee
+        );
+        bytes32 proposalId = bridge.proposeAction(
+            data,
+            bridge.DEFAULT_ADMIN_ROLE()
+        );
         bridge.approveProposal(proposalId);
         bridge.executeProposal(proposalId);
 
@@ -113,8 +156,14 @@ contract QubicBridgeTest is Test {
         vm.startPrank(admin);
 
         // Create and execute proposal with invalid fee
-        bytes memory data = abi.encodeWithSelector(bridge.setBaseFee.selector, 101 * 100);
-        bytes32 proposalId = bridge.proposeAction(data, bridge.DEFAULT_ADMIN_ROLE());
+        bytes memory data = abi.encodeWithSelector(
+            bridge.setBaseFee.selector,
+            101 * 100
+        );
+        bytes32 proposalId = bridge.proposeAction(
+            data,
+            bridge.DEFAULT_ADMIN_ROLE()
+        );
         bridge.approveProposal(proposalId);
 
         // When the internal call fails, executeProposal reverts with a generic error
@@ -130,8 +179,14 @@ contract QubicBridgeTest is Test {
         address newManager = makeAddr("newManager");
 
         // Add manager via proposal
-        bytes memory addData = abi.encodeWithSelector(bridge.addManager.selector, newManager);
-        bytes32 addProposalId = bridge.proposeAction(addData, bridge.DEFAULT_ADMIN_ROLE());
+        bytes memory addData = abi.encodeWithSelector(
+            bridge.addManager.selector,
+            newManager
+        );
+        bytes32 addProposalId = bridge.proposeAction(
+            addData,
+            bridge.DEFAULT_ADMIN_ROLE()
+        );
         bridge.approveProposal(addProposalId);
 
         vm.expectEmit(address(bridge));
@@ -139,8 +194,14 @@ contract QubicBridgeTest is Test {
         bridge.executeProposal(addProposalId);
 
         // Remove manager via proposal
-        bytes memory removeData = abi.encodeWithSelector(bridge.removeManager.selector, newManager);
-        bytes32 removeProposalId = bridge.proposeAction(removeData, bridge.DEFAULT_ADMIN_ROLE());
+        bytes memory removeData = abi.encodeWithSelector(
+            bridge.removeManager.selector,
+            newManager
+        );
+        bytes32 removeProposalId = bridge.proposeAction(
+            removeData,
+            bridge.DEFAULT_ADMIN_ROLE()
+        );
         bridge.approveProposal(removeProposalId);
 
         vm.expectEmit(address(bridge));
@@ -156,7 +217,10 @@ contract QubicBridgeTest is Test {
         address newOperator = makeAddr("newOperator");
 
         // Add operator via proposal
-        bytes memory addData = abi.encodeWithSelector(bridge.addOperator.selector, newOperator);
+        bytes memory addData = abi.encodeWithSelector(
+            bridge.addOperator.selector,
+            newOperator
+        );
         bytes32 managerRole = keccak256("MANAGER_ROLE");
         bytes32 addProposalId = bridge.proposeAction(addData, managerRole);
         bridge.approveProposal(addProposalId);
@@ -166,8 +230,14 @@ contract QubicBridgeTest is Test {
         bridge.executeProposal(addProposalId);
 
         // Remove operator via proposal
-        bytes memory removeData = abi.encodeWithSelector(bridge.removeOperator.selector, newOperator);
-        bytes32 removeProposalId = bridge.proposeAction(removeData, managerRole);
+        bytes memory removeData = abi.encodeWithSelector(
+            bridge.removeOperator.selector,
+            newOperator
+        );
+        bytes32 removeProposalId = bridge.proposeAction(
+            removeData,
+            managerRole
+        );
         bridge.approveProposal(removeProposalId);
 
         vm.expectEmit(address(bridge));
@@ -216,11 +286,19 @@ contract QubicBridgeTest is Test {
     function test_OperatorConfirmsOrder(uint256 amount) public {
         vm.assume(amount > 1 && amount < INITIAL_BALANCE);
         uint256 orderId = createTestOrder(alice, amount);
-        uint256 fee = qubicBridgeHelper._getTransferFee(amount, OPERATOR_FEE_PCT);
+        uint256 fee = qubicBridgeHelper._getTransferFee(
+            amount,
+            OPERATOR_FEE_PCT
+        );
 
         vm.startPrank(operator);
         vm.expectEmit(address(bridge));
-        emit QubicBridge.OrderConfirmed(orderId, alice, QUBIC_DESTINATION, amount);
+        emit QubicBridge.OrderConfirmed(
+            orderId,
+            alice,
+            QUBIC_DESTINATION,
+            amount
+        );
         bridge.confirmOrder(orderId, OPERATOR_FEE_PCT);
 
         assertEq(token.balanceOf(address(bridge)), 0);
@@ -254,12 +332,20 @@ contract QubicBridgeTest is Test {
     function test_OperatorRevertsOrder() public {
         uint256 amount = 100_000;
         uint256 initialBalance = token.balanceOf(alice);
-        uint256 fee = qubicBridgeHelper._getTransferFee(amount, OPERATOR_FEE_PCT);
+        uint256 fee = qubicBridgeHelper._getTransferFee(
+            amount,
+            OPERATOR_FEE_PCT
+        );
         uint256 orderId = createTestOrder(alice, amount);
 
         vm.startPrank(operator);
         vm.expectEmit(address(bridge));
-        emit QubicBridge.OrderReverted(orderId, alice, QUBIC_DESTINATION, amount);
+        emit QubicBridge.OrderReverted(
+            orderId,
+            alice,
+            QUBIC_DESTINATION,
+            amount
+        );
         bridge.revertOrder(orderId, OPERATOR_FEE_PCT);
 
         assertEq(token.balanceOf(address(bridge)), 0);
@@ -273,13 +359,22 @@ contract QubicBridgeTest is Test {
         vm.assume(amount > 1 && amount < INITIAL_BALANCE);
         uint256 orderId = 1;
         uint256 initialBalance = token.balanceOf(bob);
-        uint256 fee = qubicBridgeHelper._getTransferFee(amount, OPERATOR_FEE_PCT);
+        uint256 fee = qubicBridgeHelper._getTransferFee(
+            amount,
+            OPERATOR_FEE_PCT
+        );
         uint256 amountAfterFee = amount - fee;
 
         vm.startPrank(operator);
         vm.expectEmit(address(bridge));
         emit QubicBridge.OrderExecuted(orderId, QUBIC_DESTINATION, bob, amount);
-        bridge.executeOrder(orderId, QUBIC_DESTINATION, bob, amount, OPERATOR_FEE_PCT);
+        bridge.executeOrder(
+            orderId,
+            QUBIC_DESTINATION,
+            bob,
+            amount,
+            OPERATOR_FEE_PCT
+        );
 
         assertEq(token.balanceOf(bob), initialBalance + amountAfterFee);
         assertEq(token.balanceOf(treasury), fee);
@@ -292,16 +387,34 @@ contract QubicBridgeTest is Test {
         // Test unauthorized caller
         vm.startPrank(bob);
         vm.expectRevert();
-        bridge.executeOrder(orderId, QUBIC_DESTINATION, bob, amount, OPERATOR_FEE_PCT);
+        bridge.executeOrder(
+            orderId,
+            QUBIC_DESTINATION,
+            bob,
+            amount,
+            OPERATOR_FEE_PCT
+        );
 
         // Test invalid amount
         vm.startPrank(operator);
         vm.expectRevert(QubicBridge.InvalidAmount.selector);
-        bridge.executeOrder(orderId, QUBIC_DESTINATION, bob, 0, OPERATOR_FEE_PCT);
+        bridge.executeOrder(
+            orderId,
+            QUBIC_DESTINATION,
+            bob,
+            0,
+            OPERATOR_FEE_PCT
+        );
 
         // Test invalid destination
         vm.expectRevert(QubicBridge.InvalidDestinationAccount.selector);
-        bridge.executeOrder(orderId, QUBIC_DESTINATION, address(0), amount, OPERATOR_FEE_PCT);
+        bridge.executeOrder(
+            orderId,
+            QUBIC_DESTINATION,
+            address(0),
+            amount,
+            OPERATOR_FEE_PCT
+        );
     }
 
     // ========== EMERGENCY WITHDRAWALS ==========
@@ -315,8 +428,16 @@ contract QubicBridgeTest is Test {
 
         vm.startPrank(admin);
         // Create and execute proposal
-        bytes memory data = abi.encodeWithSelector(bridge.emergencyTokenWithdraw.selector, address(token), admin, amount);
-        bytes32 proposalId = bridge.proposeAction(data, bridge.DEFAULT_ADMIN_ROLE());
+        bytes memory data = abi.encodeWithSelector(
+            bridge.emergencyTokenWithdraw.selector,
+            address(token),
+            admin,
+            amount
+        );
+        bytes32 proposalId = bridge.proposeAction(
+            data,
+            bridge.DEFAULT_ADMIN_ROLE()
+        );
         bridge.approveProposal(proposalId);
         bridge.executeProposal(proposalId);
         vm.stopPrank();
@@ -330,8 +451,14 @@ contract QubicBridgeTest is Test {
 
         vm.startPrank(admin);
         // Create and execute proposal
-        bytes memory data = abi.encodeWithSelector(bridge.emergencyEtherWithdraw.selector, admin);
-        bytes32 proposalId = bridge.proposeAction(data, bridge.DEFAULT_ADMIN_ROLE());
+        bytes memory data = abi.encodeWithSelector(
+            bridge.emergencyEtherWithdraw.selector,
+            admin
+        );
+        bytes32 proposalId = bridge.proposeAction(
+            data,
+            bridge.DEFAULT_ADMIN_ROLE()
+        );
         bridge.approveProposal(proposalId);
         bridge.executeProposal(proposalId);
         vm.stopPrank();
@@ -356,10 +483,26 @@ contract QubicBridgeHelper is QubicBridge {
         address[] memory admins,
         uint256 adminThreshold,
         uint256 managerThreshold,
-        address feeRecipient
-    ) QubicBridge(token, baseFee, admins, adminThreshold, managerThreshold, feeRecipient) {}
+        address feeRecipient,
+        uint256 minTransferAmount,
+        uint256 maxTransferAmount
+    )
+        QubicBridge(
+            token,
+            baseFee,
+            admins,
+            adminThreshold,
+            managerThreshold,
+            feeRecipient,
+            minTransferAmount,
+            maxTransferAmount
+        )
+    {}
 
-    function _getTransferFee(uint256 amount, uint256 feePct) public view returns (uint256) {
+    function _getTransferFee(
+        uint256 amount,
+        uint256 feePct
+    ) public view returns (uint256) {
         return getTransferFee(amount, feePct);
     }
 }

@@ -20,15 +20,15 @@ contract DeployBridgeOnlyScript is Script {
         // Initial admins
         address[] memory initialAdmins = new address[](3);
         initialAdmins[0] = 0x464800222D2AB38F696f0f74fe6A9fA5A2693E12;
-        initialAdmins[1] = 0x0e60B83F83c5d2684acE779dea8A957e91D02475;
-        initialAdmins[2] = 0x090378a9c80c5E1Ced85e56B2128c1e514E75357;
+        initialAdmins[1] = 0xDb29Aedd947eBa1560dd31CffEcf63bbB817aB4A;
+        initialAdmins[2] = 0x7002b4761B7B836b20F07e680b5B95c755197102;
 
         // Multisig thresholds (2 of 3)
         uint256 adminThreshold = 2; // Require 2 admins to approve admin actions
         uint256 managerThreshold = 2; // Require 2 managers to approve manager actions
 
         // Fee recipient (treasury address - same as admin3, can be changed later via multisig)
-        address feeRecipient = 0x090378a9c80c5E1Ced85e56B2128c1e514E75357;
+        address feeRecipient = 0x7002b4761B7B836b20F07e680b5B95c755197102;
 
         // Deploy only the bridge with existing token
         QubicBridge bridge = new QubicBridge(
@@ -37,7 +37,9 @@ contract DeployBridgeOnlyScript is Script {
             initialAdmins,
             adminThreshold,
             managerThreshold,
-            feeRecipient
+            feeRecipient,
+            1000, // minTransferAmount
+            0 // maxTransferAmount (no limit)
         );
 
         vm.stopBroadcast();
@@ -50,7 +52,9 @@ contract DeployBridgeOnlyScript is Script {
         console.log("Admin Threshold: %s", adminThreshold);
         console.log("Manager Threshold: %s", managerThreshold);
         console.log("");
-        console.log("IMPORTANT: You need to manually add the bridge as operator to the token:");
+        console.log(
+            "IMPORTANT: You need to manually add the bridge as operator to the token:"
+        );
         console.log("Call token.addOperator(%s) as admin", address(bridge));
         console.log("========================================");
     }

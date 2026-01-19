@@ -16,7 +16,10 @@
       "Bash(cast keccak:*)",
       "Bash(cast calldata:*)",
       "Bash(cast code:*)",
-      "Bash(git remote set-url:*)"
+      "Bash(git remote set-url:*)",
+      "Read(//c/Users/smias/Documents/DEVELOPEMENT/QUBIC/VottunBridge-Multisig-Implementation-Proposal/**)",
+      "Bash(move:*)",
+      "Bash(cast send:*)"
     ],
     "deny": [],
     "ask": []

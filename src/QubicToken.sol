@@ -37,7 +37,9 @@ contract QubicToken is ERC20, AccessControlEnumerable {
      * @param newOperator Address of the new operator
      * @return True if the role was granted, false otherwise
      */
-    function addOperator(address newOperator) external onlyRole(DEFAULT_ADMIN_ROLE) returns (bool) {
+    function addOperator(
+        address newOperator
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) returns (bool) {
         require(newOperator != address(0), "Operator cannot be zero address");
         bool success = _grantRole(OPERATOR_ROLE, newOperator);
         emit OperatorAdded(newOperator);
@@ -49,7 +51,9 @@ contract QubicToken is ERC20, AccessControlEnumerable {
      * @param operator Address of the operator to remove
      * @return True if the role was revoked, false otherwise
      */
-    function removeOperator(address operator) external onlyRole(DEFAULT_ADMIN_ROLE) returns (bool) {
+    function removeOperator(
+        address operator
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) returns (bool) {
         bool success = _revokeRole(OPERATOR_ROLE, operator);
         emit OperatorRemoved(operator);
         return success;
@@ -69,16 +73,16 @@ contract QubicToken is ERC20, AccessControlEnumerable {
     }
 
     /**
-     * @notice Burns tokens from a sender
-     * @param from Address to burn tokens from
+     * @notice Burns tokens from the caller
+     * @dev Only burns tokens from msg.sender to prevent operators from burning tokens from arbitrary addresses
      * @param amount Amount of tokens to burn
      */
-    function burn(address from, uint256 amount) external onlyRole(OPERATOR_ROLE) {
+    function burn(uint256 amount) external onlyRole(OPERATOR_ROLE) {
         if (amount == 0) {
             revert InvalidAmount();
         }
-        _burn(from, amount);
-        emit Burned(from, amount);
+        _burn(msg.sender, amount);
+        emit Burned(msg.sender, amount);
     }
 
     /**

@@ -27,6 +27,10 @@ contract QubicDeployScript is Script {
         // Fee recipient (treasury address - same as admin3, can be changed later via multisig)
         address feeRecipient = 0x090378a9c80c5E1Ced85e56B2128c1e514E75357;
 
+        // Transfer limits
+        uint256 minTransferAmount = 1000; // Minimum 1000 QUs to prevent dust attacks
+        uint256 maxTransferAmount = 0; // No maximum limit (0 = unlimited)
+
         QubicToken token = new QubicToken();
         QubicBridge bridge = new QubicBridge(
             address(token),
@@ -34,7 +38,9 @@ contract QubicDeployScript is Script {
             initialAdmins,
             adminThreshold,
             managerThreshold,
-            feeRecipient
+            feeRecipient,
+            minTransferAmount,
+            maxTransferAmount
         );
 
         token.addOperator(address(bridge));
