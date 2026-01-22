@@ -181,6 +181,12 @@ contract QubicBridge is
     error MaxAdminsReached();
     error MaxManagersReached();
     error ThresholdExceedsCount();
+    error AlreadyAdmin();
+    error AlreadyManager();
+    error AlreadyOperator();
+    error MustBePaused();
+    error ProposalAlreadyExists();
+    error FeeExceedsAmount();
 
     /**
      * @notice Internal helper to register function selector to role mapping
@@ -296,6 +302,9 @@ contract QubicBridge is
         if (newAdmin == address(0)) {
             revert InvalidAddress();
         }
+        if (hasRole(DEFAULT_ADMIN_ROLE, newAdmin)) {
+            revert AlreadyAdmin();
+        }
 
         // Count current admins (excluding contract itself)
         uint256 adminCount = 0;
@@ -357,6 +366,9 @@ contract QubicBridge is
         if (newManager == address(0)) {
             revert InvalidAddress();
         }
+        if (hasRole(MANAGER_ROLE, newManager)) {
+            revert AlreadyManager();
+        }
 
         // Count current managers (excluding contract itself)
         uint256 managerCount = 0;
@@ -415,6 +427,9 @@ contract QubicBridge is
     ) external onlyProposal returns (bool) {
         if (newOperator == address(0)) {
             revert InvalidAddress();
+        }
+        if (hasRole(OPERATOR_ROLE, newOperator)) {
+            revert AlreadyOperator();
         }
         bool success = _grantRole(OPERATOR_ROLE, newOperator);
         emit OperatorAdded(newOperator);
@@ -551,6 +566,9 @@ contract QubicBridge is
         }
 
         uint256 fee = getTransferFee(amount, feePct);
+        if (fee >= amount) {
+            revert FeeExceedsAmount();
+        }
         uint256 amountAfterFee = amount - fee;
 
         // Mark the order done
@@ -598,6 +616,9 @@ contract QubicBridge is
         delete pullOrders[orderId];
 
         uint256 fee = getTransferFee(amount, feePct);
+        if (fee >= amount) {
+            revert FeeExceedsAmount();
+        }
         uint256 amountAfterFee = amount - fee;
 
         // Transfer the fee to the configured recipient
@@ -649,11 +670,10 @@ contract QubicBridge is
         }
 
         uint256 fee = getTransferFee(amount, feePct);
-        uint256 amountAfterFee = amount - fee;
-
-        if (amountAfterFee == 0) {
-            revert InvalidAmount();
+        if (fee >= amount) {
+            revert FeeExceedsAmount();
         }
+        uint256 amountAfterFee = amount - fee;
 
         // Mark the order as executed
         pushOrders[originOrderId] = true;
@@ -714,6 +734,9 @@ contract QubicBridge is
         address recipient,
         uint256 amount
     ) external onlyProposal {
+        if (!paused()) {
+            revert MustBePaused();
+        }
         if (recipient == address(0)) {
             revert InvalidAddress();
         }
@@ -740,6 +763,9 @@ contract QubicBridge is
      * @param recipient Address to receive the withdrawn Ether
      */
     function emergencyEtherWithdraw(address recipient) external onlyProposal {
+        if (!paused()) {
+            revert MustBePaused();
+        }
         if (recipient == address(0)) {
             revert InvalidAddress();
         }
@@ -799,6 +825,11 @@ contract QubicBridge is
         bytes32 proposalId = keccak256(
             abi.encodePacked(data, block.timestamp, msg.sender, block.number)
         );
+
+        // Check if proposal already exists
+        if (proposals[proposalId].proposer != address(0)) {
+            revert ProposalAlreadyExists();
+        }
 
         // Initialize proposal
         Proposal storage proposal = proposals[proposalId];

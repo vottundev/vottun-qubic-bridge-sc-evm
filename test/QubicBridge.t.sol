@@ -248,7 +248,7 @@ contract QubicBridgeTest is Test {
     // ========== ORDER CREATION TESTS ==========
 
     function test_UserCreatesValidOrder(uint256 amount) public {
-        vm.assume(amount > 1 && amount < INITIAL_BALANCE);
+        vm.assume(amount >= 1000 && amount < INITIAL_BALANCE); // minTransferAmount = 1000
 
         uint256 initialBalance = token.balanceOf(alice);
         uint256 orderId = createTestOrder(alice, amount);
@@ -284,7 +284,7 @@ contract QubicBridgeTest is Test {
     // ========== ORDER CONFIRMATION TESTS ==========
 
     function test_OperatorConfirmsOrder(uint256 amount) public {
-        vm.assume(amount > 1 && amount < INITIAL_BALANCE);
+        vm.assume(amount >= 1000 && amount < INITIAL_BALANCE); // minTransferAmount = 1000
         uint256 orderId = createTestOrder(alice, amount);
         uint256 fee = qubicBridgeHelper._getTransferFee(
             amount,
@@ -356,7 +356,7 @@ contract QubicBridgeTest is Test {
     // ========== ORDER EXECUTION TESTS ==========
 
     function test_OperatorExecutesOrder(uint256 amount) public {
-        vm.assume(amount > 1 && amount < INITIAL_BALANCE);
+        vm.assume(amount >= 1000 && amount < INITIAL_BALANCE); // minTransferAmount = 1000
         uint256 orderId = 1;
         uint256 initialBalance = token.balanceOf(bob);
         uint256 fee = qubicBridgeHelper._getTransferFee(
@@ -395,9 +395,9 @@ contract QubicBridgeTest is Test {
             OPERATOR_FEE_PCT
         );
 
-        // Test invalid amount
+        // Test invalid amount (below minimum)
         vm.startPrank(operator);
-        vm.expectRevert(QubicBridge.InvalidAmount.selector);
+        vm.expectRevert(QubicBridge.AmountBelowMinimum.selector);
         bridge.executeOrder(
             orderId,
             QUBIC_DESTINATION,
@@ -427,7 +427,18 @@ contract QubicBridgeTest is Test {
         vm.stopPrank();
 
         vm.startPrank(admin);
-        // Create and execute proposal
+        // First pause the bridge (required for emergency withdraw)
+        bytes memory pauseData = abi.encodeWithSelector(
+            bridge.emergencyPause.selector
+        );
+        bytes32 pauseProposalId = bridge.proposeAction(
+            pauseData,
+            bridge.DEFAULT_ADMIN_ROLE()
+        );
+        bridge.approveProposal(pauseProposalId);
+        bridge.executeProposal(pauseProposalId);
+
+        // Create and execute withdraw proposal
         bytes memory data = abi.encodeWithSelector(
             bridge.emergencyTokenWithdraw.selector,
             address(token),
@@ -450,7 +461,18 @@ contract QubicBridgeTest is Test {
         vm.deal(address(bridge), amount);
 
         vm.startPrank(admin);
-        // Create and execute proposal
+        // First pause the bridge (required for emergency withdraw)
+        bytes memory pauseData = abi.encodeWithSelector(
+            bridge.emergencyPause.selector
+        );
+        bytes32 pauseProposalId = bridge.proposeAction(
+            pauseData,
+            bridge.DEFAULT_ADMIN_ROLE()
+        );
+        bridge.approveProposal(pauseProposalId);
+        bridge.executeProposal(pauseProposalId);
+
+        // Create and execute withdraw proposal
         bytes memory data = abi.encodeWithSelector(
             bridge.emergencyEtherWithdraw.selector,
             admin

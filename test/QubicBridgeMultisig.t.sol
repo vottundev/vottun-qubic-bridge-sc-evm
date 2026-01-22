@@ -1270,6 +1270,26 @@ contract QubicBridgeMultisigTest is Test {
             "Bridge should have tokens"
         );
 
+        // First pause the bridge (required for emergency withdraw)
+        vm.startPrank(admin1);
+        bytes memory pauseData = abi.encodeWithSelector(
+            bridge.emergencyPause.selector
+        );
+        bytes32 pauseProposalId = bridge.proposeAction(
+            pauseData,
+            DEFAULT_ADMIN_ROLE
+        );
+        bridge.approveProposal(pauseProposalId);
+        vm.stopPrank();
+
+        vm.prank(admin2);
+        bridge.approveProposal(pauseProposalId);
+
+        vm.prank(admin1);
+        bridge.executeProposal(pauseProposalId);
+
+        assertTrue(bridge.paused(), "Bridge should be paused");
+
         // Emergency withdraw
         address recipient = makeAddr("recipient");
         vm.startPrank(admin1);
@@ -1330,6 +1350,26 @@ contract QubicBridgeMultisigTest is Test {
 
         assertEq(address(bridge).balance, amount, "Bridge should have ETH");
 
+        // First pause the bridge (required for emergency withdraw)
+        vm.startPrank(admin1);
+        bytes memory pauseData = abi.encodeWithSelector(
+            bridge.emergencyPause.selector
+        );
+        bytes32 pauseProposalId = bridge.proposeAction(
+            pauseData,
+            DEFAULT_ADMIN_ROLE
+        );
+        bridge.approveProposal(pauseProposalId);
+        vm.stopPrank();
+
+        vm.prank(admin2);
+        bridge.approveProposal(pauseProposalId);
+
+        vm.prank(admin1);
+        bridge.executeProposal(pauseProposalId);
+
+        assertTrue(bridge.paused(), "Bridge should be paused");
+
         // Emergency withdraw
         address recipient = makeAddr("recipient");
         vm.startPrank(admin1);
@@ -1369,5 +1409,136 @@ contract QubicBridgeMultisigTest is Test {
         vm.prank(admin1);
         vm.expectRevert("Proposal execution failed");
         bridge.executeProposal(proposalId);
+    }
+
+    // ============ Self-Proposal Prevention Tests ============
+
+    function test_RevertWhen_AdminProposesThemselvesAsAdmin() public {
+        // Admin1 proposes themselves as admin (already admin) -> reverts at execution (AlreadyAdmin)
+        vm.prank(admin1);
+        bytes memory data = abi.encodeWithSelector(
+            bridge.addAdmin.selector,
+            admin1
+        );
+        bytes32 proposalId = bridge.proposeAction(data, DEFAULT_ADMIN_ROLE);
+
+        vm.prank(admin1);
+        bridge.approveProposal(proposalId);
+        vm.prank(admin2);
+        bridge.approveProposal(proposalId);
+
+        vm.prank(admin1);
+        vm.expectRevert("Proposal execution failed");
+        bridge.executeProposal(proposalId);
+    }
+
+    function test_RevertWhen_ProposeAddManagerWhoIsAlreadyManager() public {
+        // Admin proposes addManager(manager1) but manager1 is already manager -> AlreadyManager at execution
+        // Advance block to avoid proposalId collision with setUp
+        vm.roll(block.number + 1);
+        vm.warp(block.timestamp + 1);
+
+        vm.prank(admin1);
+        bytes memory data = abi.encodeWithSelector(
+            bridge.addManager.selector,
+            manager1
+        );
+        bytes32 proposalId = bridge.proposeAction(data, DEFAULT_ADMIN_ROLE);
+
+        vm.prank(admin1);
+        bridge.approveProposal(proposalId);
+        vm.prank(admin2);
+        bridge.approveProposal(proposalId);
+
+        vm.prank(admin1);
+        vm.expectRevert("Proposal execution failed");
+        bridge.executeProposal(proposalId);
+    }
+
+    function test_RevertWhen_ProposeAddOperatorWhoIsAlreadyOperator() public {
+        // Add alice as operator first, then propose addOperator(alice) again -> AlreadyOperator at execution
+        vm.prank(manager1);
+        bytes32 addOpId = bridge.proposeAction(
+            abi.encodeWithSelector(bridge.addOperator.selector, alice),
+            MANAGER_ROLE
+        );
+        vm.prank(manager1);
+        bridge.approveProposal(addOpId);
+        vm.prank(manager2);
+        bridge.approveProposal(addOpId);
+        vm.prank(manager1);
+        bridge.executeProposal(addOpId);
+
+        // Advance block to avoid proposalId collision
+        vm.roll(block.number + 1);
+        vm.warp(block.timestamp + 1);
+
+        // Now try to add alice again - should fail with AlreadyOperator
+        vm.prank(manager1);
+        bytes32 proposalId = bridge.proposeAction(
+            abi.encodeWithSelector(bridge.addOperator.selector, alice),
+            MANAGER_ROLE
+        );
+        vm.prank(manager1);
+        bridge.approveProposal(proposalId);
+        vm.prank(manager2);
+        bridge.approveProposal(proposalId);
+        vm.prank(manager1);
+        vm.expectRevert("Proposal execution failed");
+        bridge.executeProposal(proposalId);
+    }
+
+    function test_AdminCanProposeOtherAddressAsAdmin() public {
+        // Admin1 proposes a different address as admin - should work
+        address newAdmin = makeAddr("newAdmin");
+
+        // First we need to remove an admin to make room (max 3)
+        vm.startPrank(admin1);
+        bytes memory removeData = abi.encodeWithSelector(
+            bridge.removeAdmin.selector,
+            admin3
+        );
+        bytes32 removeProposalId = bridge.proposeAction(
+            removeData,
+            DEFAULT_ADMIN_ROLE
+        );
+        bridge.approveProposal(removeProposalId);
+        vm.stopPrank();
+
+        vm.prank(admin2);
+        bridge.approveProposal(removeProposalId);
+
+        vm.prank(admin1);
+        bridge.executeProposal(removeProposalId);
+
+        // Now propose adding a new admin
+        vm.startPrank(admin1);
+        bytes memory data = abi.encodeWithSelector(
+            bridge.addAdmin.selector,
+            newAdmin // proposing someone else - should succeed
+        );
+        bytes32 proposalId = bridge.proposeAction(data, DEFAULT_ADMIN_ROLE);
+        vm.stopPrank();
+
+        // Verify proposal was created
+        (address proposer, , , , , ) = bridge.getProposal(proposalId);
+        assertEq(proposer, admin1, "Proposer should be admin1");
+    }
+
+    function test_ManagerCanProposeOtherAddressAsOperator() public {
+        // Manager1 proposes a different address as operator - should work
+        address newOperator = makeAddr("newOperator");
+
+        vm.startPrank(manager1);
+        bytes memory data = abi.encodeWithSelector(
+            bridge.addOperator.selector,
+            newOperator // proposing someone else - should succeed
+        );
+        bytes32 proposalId = bridge.proposeAction(data, MANAGER_ROLE);
+        vm.stopPrank();
+
+        // Verify proposal was created
+        (address proposer, , , , , ) = bridge.getProposal(proposalId);
+        assertEq(proposer, manager1, "Proposer should be manager1");
     }
 }
