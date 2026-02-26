@@ -7,6 +7,8 @@ interface IQubicBridge {
     error InvalidBaseFee();
     error InvalidDestinationAccount();
     error InvalidAmount();
+    error AmountBelowMinimum();
+    error AmountExceedsMaximum();
     error InvalidFeePct();
     error InvalidOrderId();
     error InsufficientApproval();
@@ -24,6 +26,16 @@ interface IQubicBridge {
     error MaxAdminsReached();
     error MaxManagersReached();
     error ThresholdExceedsCount();
+    error AlreadyAdmin();
+    error AlreadyManager();
+    error AlreadyOperator();
+    error MustBePaused();
+    error ProposalAlreadyExists();
+    error FeeExceedsAmount();
+    error CannotWithdrawBridgeToken();
+    error InvalidDataLength();
+    error FunctionNotRegistered();
+    error RoleMismatch();
 
     struct PullOrder {
         address originAccount;
@@ -34,16 +46,16 @@ interface IQubicBridge {
 
     // Events
     event OrderCreated(
-        uint256 indexed orderId, address indexed originAccount, string indexed destinationAccount, uint256 amount
+        uint256 indexed orderId, address indexed originAccount, string destinationAccount, uint256 amount
     );
     event OrderConfirmed(
-        uint256 indexed orderId, address indexed originAccount, string indexed destinationAccount, uint256 amount
+        uint256 indexed orderId, address indexed originAccount, string destinationAccount, uint256 amount
     );
     event OrderReverted(
-        uint256 indexed orderId, address indexed originAccount, string indexed destinationAccount, uint256 amount
+        uint256 indexed orderId, address indexed originAccount, string destinationAccount, uint256 amount
     );
     event OrderExecuted(
-        uint256 indexed originOrderId, string indexed originAccount, address indexed destinationAccount, uint256 amount
+        uint256 indexed originOrderId, string originAccount, address indexed destinationAccount, uint256 amount
     );
     event AdminAdded(address indexed admin);
     event AdminRemoved(address indexed admin);
@@ -53,6 +65,8 @@ interface IQubicBridge {
     event OperatorRemoved(address indexed operator);
     event BaseFeeUpdated(uint256 baseFee);
     event FeeRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
+    event MinTransferAmountUpdated(uint256 minAmount);
+    event MaxTransferAmountUpdated(uint256 maxAmount);
     event EmergencyTokenWithdrawn(address tokenAddress, address to, uint256 amount);
     event EmergencyEtherWithdrawn(address to, uint256 amount);
 
@@ -71,6 +85,8 @@ interface IQubicBridge {
     function removeManager(address manager) external returns (bool);
     function setBaseFee(uint256 _baseFee) external;
     function setFeeRecipient(address newFeeRecipient) external;
+    function setMinTransferAmount(uint256 _minTransferAmount) external;
+    function setMaxTransferAmount(uint256 _maxTransferAmount) external;
 
     // Manager Functions
     function addOperator(address operator) external returns (bool);
@@ -120,6 +136,8 @@ interface IQubicBridge {
     function token() external view returns (address);
     function baseFee() external view returns (uint256);
     function feeRecipient() external view returns (address);
+    function minTransferAmount() external view returns (uint256);
+    function maxTransferAmount() external view returns (uint256);
     function getPendingProposals() external view returns (bytes32[] memory);
     function getProposal(bytes32 proposalId) external view returns (
         address proposer,

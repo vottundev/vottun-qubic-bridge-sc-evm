@@ -6,6 +6,7 @@ import {
 } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Test, console} from "forge-std/Test.sol";
 import {QubicToken} from "../src/QubicToken.sol";
+import {IQubicToken} from "../src/IQubicToken.sol";
 
 contract QubicProxy is ERC1967Proxy {
     constructor(
@@ -34,11 +35,11 @@ contract QubicTokenTest is Test {
         vm.startPrank(admin);
 
         vm.expectEmit(address(token));
-        emit QubicToken.OperatorAdded(bob);
+        emit IQubicToken.OperatorAdded(bob);
         assertEq(token.addOperator(bob), true);
 
         vm.expectEmit(address(token));
-        emit QubicToken.OperatorRemoved(bob);
+        emit IQubicToken.OperatorRemoved(bob);
         assertEq(token.removeOperator(bob), true);
     }
 

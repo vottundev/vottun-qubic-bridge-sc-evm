@@ -4,6 +4,7 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {QubicToken} from "../src/QubicToken.sol";
 import {QubicBridge} from "../src/QubicBridge.sol";
+import {IQubicBridge} from "../src/IQubicBridge.sol";
 
 contract QubicBridgeMultisigTest is Test {
     QubicToken public token;
@@ -125,7 +126,7 @@ contract QubicBridgeMultisigTest is Test {
 
         // We can't predict the exact proposalId, so we just check the event is emitted
         vm.expectEmit(false, true, false, false);
-        emit QubicBridge.ProposalCreated(
+        emit IQubicBridge.ProposalCreated(
             bytes32(0),
             admin1,
             data,
@@ -160,7 +161,7 @@ contract QubicBridgeMultisigTest is Test {
             300
         );
 
-        vm.expectRevert(QubicBridge.UnauthorizedRole.selector);
+        vm.expectRevert(IQubicBridge.UnauthorizedRole.selector);
         bridge.proposeAction(data, DEFAULT_ADMIN_ROLE);
 
         vm.stopPrank();
@@ -174,7 +175,7 @@ contract QubicBridgeMultisigTest is Test {
             operator
         );
 
-        vm.expectRevert(QubicBridge.UnauthorizedRole.selector);
+        vm.expectRevert(IQubicBridge.UnauthorizedRole.selector);
         bridge.proposeAction(data, MANAGER_ROLE);
 
         vm.stopPrank();
@@ -189,7 +190,7 @@ contract QubicBridgeMultisigTest is Test {
         );
         bytes32 invalidRole = keccak256("INVALID_ROLE");
 
-        vm.expectRevert(QubicBridge.UnauthorizedRole.selector);
+        vm.expectRevert(IQubicBridge.UnauthorizedRole.selector);
         bridge.proposeAction(data, invalidRole);
 
         vm.stopPrank();
@@ -211,7 +212,7 @@ contract QubicBridgeMultisigTest is Test {
         vm.startPrank(admin2);
 
         vm.expectEmit(true, true, false, true);
-        emit QubicBridge.ProposalApproved(proposalId, admin2, 1);
+        emit IQubicBridge.ProposalApproved(proposalId, admin2, 1);
 
         bridge.approveProposal(proposalId);
 
@@ -255,7 +256,7 @@ contract QubicBridgeMultisigTest is Test {
 
         // Non-admin tries to approve
         vm.startPrank(nonAdmin);
-        vm.expectRevert(QubicBridge.UnauthorizedRole.selector);
+        vm.expectRevert(IQubicBridge.UnauthorizedRole.selector);
         bridge.approveProposal(proposalId);
         vm.stopPrank();
     }
@@ -275,7 +276,7 @@ contract QubicBridgeMultisigTest is Test {
         bridge.approveProposal(proposalId);
 
         // Admin2 tries to approve again
-        vm.expectRevert(QubicBridge.ProposalAlreadyApproved.selector);
+        vm.expectRevert(IQubicBridge.ProposalAlreadyApproved.selector);
         bridge.approveProposal(proposalId);
         vm.stopPrank();
     }
@@ -284,7 +285,7 @@ contract QubicBridgeMultisigTest is Test {
         vm.startPrank(admin1);
         bytes32 fakeProposalId = keccak256("fake");
 
-        vm.expectRevert(QubicBridge.ProposalNotFound.selector);
+        vm.expectRevert(IQubicBridge.ProposalNotFound.selector);
         bridge.approveProposal(fakeProposalId);
         vm.stopPrank();
     }
@@ -367,7 +368,7 @@ contract QubicBridgeMultisigTest is Test {
 
         // Only 1 approval, threshold is 2
         vm.startPrank(admin2);
-        vm.expectRevert(QubicBridge.InsufficientApprovals.selector);
+        vm.expectRevert(IQubicBridge.InsufficientApprovals.selector);
         bridge.executeProposal(proposalId);
         vm.stopPrank();
     }
@@ -394,7 +395,7 @@ contract QubicBridgeMultisigTest is Test {
 
         // Try to execute again
         vm.prank(admin1);
-        vm.expectRevert(QubicBridge.ProposalAlreadyExecuted.selector);
+        vm.expectRevert(IQubicBridge.ProposalAlreadyExecuted.selector);
         bridge.executeProposal(proposalId);
     }
 
@@ -434,7 +435,7 @@ contract QubicBridgeMultisigTest is Test {
         bytes32 proposalId = bridge.proposeAction(data, DEFAULT_ADMIN_ROLE);
 
         vm.expectEmit(true, true, false, true);
-        emit QubicBridge.ProposalCancelled(proposalId, admin1);
+        emit IQubicBridge.ProposalCancelled(proposalId, admin1);
 
         bridge.cancelProposal(proposalId);
 
@@ -476,7 +477,7 @@ contract QubicBridgeMultisigTest is Test {
 
         // Non-admin tries to cancel
         vm.startPrank(nonAdmin);
-        vm.expectRevert(QubicBridge.UnauthorizedRole.selector);
+        vm.expectRevert(IQubicBridge.UnauthorizedRole.selector);
         bridge.cancelProposal(proposalId);
         vm.stopPrank();
     }
@@ -502,7 +503,7 @@ contract QubicBridgeMultisigTest is Test {
 
         // Try to cancel executed proposal
         vm.prank(admin1);
-        vm.expectRevert(QubicBridge.ProposalAlreadyExecuted.selector);
+        vm.expectRevert(IQubicBridge.ProposalAlreadyExecuted.selector);
         bridge.cancelProposal(proposalId);
     }
 
@@ -526,7 +527,7 @@ contract QubicBridgeMultisigTest is Test {
         // Execute
         vm.prank(admin1);
         vm.expectEmit(true, false, false, true);
-        emit QubicBridge.AdminThresholdUpdated(3);
+        emit IQubicBridge.AdminThresholdUpdated(3);
         bridge.executeProposal(proposalId);
 
         assertEq(bridge.adminThreshold(), 3, "Admin threshold should be 3");
@@ -552,7 +553,7 @@ contract QubicBridgeMultisigTest is Test {
         // Execute
         vm.prank(admin1);
         vm.expectEmit(true, true, false, false);
-        emit QubicBridge.FeeRecipientUpdated(treasury, newTreasury);
+        emit IQubicBridge.FeeRecipientUpdated(treasury, newTreasury);
         bridge.executeProposal(proposalId);
 
         assertEq(
@@ -580,7 +581,7 @@ contract QubicBridgeMultisigTest is Test {
         // Execute
         vm.prank(admin1);
         vm.expectEmit(true, false, false, true);
-        emit QubicBridge.ManagerThresholdUpdated(3);
+        emit IQubicBridge.ManagerThresholdUpdated(3);
         bridge.executeProposal(proposalId);
 
         assertEq(bridge.managerThreshold(), 3, "Manager threshold should be 3");
@@ -590,10 +591,10 @@ contract QubicBridgeMultisigTest is Test {
         vm.startPrank(admin1);
 
         // Try to call directly (should revert with OnlyProposal)
-        vm.expectRevert(QubicBridge.OnlyProposal.selector);
+        vm.expectRevert(IQubicBridge.OnlyProposal.selector);
         bridge.setAdminThreshold(0);
 
-        vm.expectRevert(QubicBridge.OnlyProposal.selector);
+        vm.expectRevert(IQubicBridge.OnlyProposal.selector);
         bridge.setManagerThreshold(0);
 
         vm.stopPrank();
@@ -871,7 +872,7 @@ contract QubicBridgeMultisigTest is Test {
             bridge.setFeeRecipient.selector,
             newTreasury
         );
-        vm.expectRevert(QubicBridge.UnauthorizedRole.selector);
+        vm.expectRevert(IQubicBridge.UnauthorizedRole.selector);
         bridge.proposeAction(data, DEFAULT_ADMIN_ROLE);
     }
 
@@ -1259,13 +1260,16 @@ contract QubicBridgeMultisigTest is Test {
     }
 
     function test_AdminCanEmergencyWithdrawTokens() public {
-        // Setup: Give bridge some tokens
+        // Deploy a separate token (not the bridge token) to test emergency withdrawal
         uint256 amount = 50_000;
-        vm.prank(alice);
-        token.transfer(address(bridge), amount);
+        vm.startPrank(admin1);
+        QubicToken otherToken = new QubicToken();
+        otherToken.addOperator(admin1);
+        otherToken.mint(address(bridge), amount);
+        vm.stopPrank();
 
         assertEq(
-            token.balanceOf(address(bridge)),
+            otherToken.balanceOf(address(bridge)),
             amount,
             "Bridge should have tokens"
         );
@@ -1290,12 +1294,12 @@ contract QubicBridgeMultisigTest is Test {
 
         assertTrue(bridge.paused(), "Bridge should be paused");
 
-        // Emergency withdraw
+        // Emergency withdraw the other token (not bridge token)
         address recipient = makeAddr("recipient");
         vm.startPrank(admin1);
         bytes memory data = abi.encodeWithSelector(
             bridge.emergencyTokenWithdraw.selector,
-            address(token),
+            address(otherToken),
             recipient,
             amount
         );
@@ -1311,15 +1315,59 @@ contract QubicBridgeMultisigTest is Test {
 
         // Verify
         assertEq(
-            token.balanceOf(recipient),
+            otherToken.balanceOf(recipient),
             amount,
             "Recipient should receive tokens"
         );
         assertEq(
-            token.balanceOf(address(bridge)),
+            otherToken.balanceOf(address(bridge)),
             0,
             "Bridge should have 0 tokens"
         );
+    }
+
+    function test_RevertWhen_EmergencyWithdrawBridgeToken() public {
+        // Setup: Give bridge some bridge tokens
+        uint256 amount = 50_000;
+        vm.prank(alice);
+        token.transfer(address(bridge), amount);
+
+        // First pause the bridge
+        vm.startPrank(admin1);
+        bytes memory pauseData = abi.encodeWithSelector(
+            bridge.emergencyPause.selector
+        );
+        bytes32 pauseProposalId = bridge.proposeAction(
+            pauseData,
+            DEFAULT_ADMIN_ROLE
+        );
+        bridge.approveProposal(pauseProposalId);
+        vm.stopPrank();
+
+        vm.prank(admin2);
+        bridge.approveProposal(pauseProposalId);
+
+        vm.prank(admin1);
+        bridge.executeProposal(pauseProposalId);
+
+        // Try to withdraw bridge token - should fail with CannotWithdrawBridgeToken
+        vm.startPrank(admin1);
+        bytes memory data = abi.encodeWithSelector(
+            bridge.emergencyTokenWithdraw.selector,
+            address(token),
+            admin1,
+            amount
+        );
+        bytes32 proposalId = bridge.proposeAction(data, DEFAULT_ADMIN_ROLE);
+        bridge.approveProposal(proposalId);
+        vm.stopPrank();
+
+        vm.prank(admin2);
+        bridge.approveProposal(proposalId);
+
+        vm.prank(admin1);
+        vm.expectRevert("Proposal execution failed");
+        bridge.executeProposal(proposalId);
     }
 
     function test_RevertWhen_EmergencyWithdrawToZeroAddress() public {

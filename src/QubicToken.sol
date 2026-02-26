@@ -3,18 +3,11 @@ pragma solidity 0.8.30;
 
 import "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "./IQubicToken.sol";
 
-contract QubicToken is ERC20, AccessControlEnumerable {
+contract QubicToken is IQubicToken, ERC20, AccessControlEnumerable {
     bytes32 constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
     uint8 constant DECIMALS = 0;
-
-    event AdminUpdated(address indexed oldAdmin, address indexed newAdmin);
-    event OperatorAdded(address indexed operator);
-    event OperatorRemoved(address indexed operator);
-    event Minted(address indexed to, uint256 amount);
-    event Burned(address indexed from, uint256 amount);
-
-    error InvalidAmount();
 
     constructor() ERC20("Wrapped Qubic", "WQUBIC") {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
@@ -105,7 +98,7 @@ contract QubicToken is ERC20, AccessControlEnumerable {
      * @notice Gets the decimals
      * @return Decimals
      */
-    function decimals() public pure override returns (uint8) {
+    function decimals() public pure override(ERC20, IQubicToken) returns (uint8) {
         return DECIMALS;
     }
 }

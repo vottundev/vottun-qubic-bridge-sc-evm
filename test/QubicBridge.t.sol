@@ -4,6 +4,7 @@ pragma solidity 0.8.30;
 import {Test, console} from "forge-std/Test.sol";
 import {QubicToken} from "../src/QubicToken.sol";
 import {QubicBridge} from "../src/QubicBridge.sol";
+import {IQubicBridge} from "../src/IQubicBridge.sol";
 
 contract QubicBridgeTest is Test {
     QubicToken public token;
@@ -126,7 +127,7 @@ contract QubicBridgeTest is Test {
         bridge.approveProposal(proposalId);
 
         vm.expectEmit(address(bridge));
-        emit QubicBridge.AdminAdded(newAdmin);
+        emit IQubicBridge.AdminAdded(newAdmin);
         bridge.executeProposal(proposalId);
 
         // Verify newAdmin has admin role
@@ -190,7 +191,7 @@ contract QubicBridgeTest is Test {
         bridge.approveProposal(addProposalId);
 
         vm.expectEmit(address(bridge));
-        emit QubicBridge.ManagerAdded(newManager);
+        emit IQubicBridge.ManagerAdded(newManager);
         bridge.executeProposal(addProposalId);
 
         // Remove manager via proposal
@@ -205,7 +206,7 @@ contract QubicBridgeTest is Test {
         bridge.approveProposal(removeProposalId);
 
         vm.expectEmit(address(bridge));
-        emit QubicBridge.ManagerRemoved(newManager);
+        emit IQubicBridge.ManagerRemoved(newManager);
         bridge.executeProposal(removeProposalId);
     }
 
@@ -226,7 +227,7 @@ contract QubicBridgeTest is Test {
         bridge.approveProposal(addProposalId);
 
         vm.expectEmit(address(bridge));
-        emit QubicBridge.OperatorAdded(newOperator);
+        emit IQubicBridge.OperatorAdded(newOperator);
         bridge.executeProposal(addProposalId);
 
         // Remove operator via proposal
@@ -241,7 +242,7 @@ contract QubicBridgeTest is Test {
         bridge.approveProposal(removeProposalId);
 
         vm.expectEmit(address(bridge));
-        emit QubicBridge.OperatorRemoved(newOperator);
+        emit IQubicBridge.OperatorRemoved(newOperator);
         bridge.executeProposal(removeProposalId);
     }
 
@@ -258,7 +259,7 @@ contract QubicBridgeTest is Test {
         assertEq(token.balanceOf(address(bridge)), amount);
 
         // Verify order details
-        QubicBridge.PullOrder memory order = bridge.getOrder(orderId);
+        IQubicBridge.PullOrder memory order = bridge.getOrder(orderId);
         assertEq(order.originAccount, alice);
         assertEq(order.destinationAccount, QUBIC_DESTINATION);
         assertEq(order.amount, amount);
@@ -269,15 +270,15 @@ contract QubicBridgeTest is Test {
         // Test invalid amount
         vm.startPrank(alice);
         token.approve(address(bridge), 1);
-        vm.expectRevert(QubicBridge.InvalidAmount.selector);
+        vm.expectRevert(IQubicBridge.InvalidAmount.selector);
         bridge.createOrder(QUBIC_DESTINATION, 0, false);
 
         // Test invalid destination account
-        vm.expectRevert(QubicBridge.InvalidDestinationAccount.selector);
+        vm.expectRevert(IQubicBridge.InvalidDestinationAccount.selector);
         bridge.createOrder("INVALID", 100, false);
 
         // Test insufficient approval
-        vm.expectRevert(QubicBridge.InsufficientApproval.selector);
+        vm.expectRevert(IQubicBridge.InsufficientApproval.selector);
         bridge.createOrder(QUBIC_DESTINATION, INITIAL_BALANCE + 1, false);
     }
 
@@ -286,14 +287,14 @@ contract QubicBridgeTest is Test {
     function test_OperatorConfirmsOrder(uint256 amount) public {
         vm.assume(amount >= 1000 && amount < INITIAL_BALANCE); // minTransferAmount = 1000
         uint256 orderId = createTestOrder(alice, amount);
-        uint256 fee = qubicBridgeHelper._getTransferFee(
+        uint256 fee = qubicBridgeHelper.getTransferFeePublic(
             amount,
             OPERATOR_FEE_PCT
         );
 
         vm.startPrank(operator);
         vm.expectEmit(address(bridge));
-        emit QubicBridge.OrderConfirmed(
+        emit IQubicBridge.OrderConfirmed(
             orderId,
             alice,
             QUBIC_DESTINATION,
@@ -304,7 +305,7 @@ contract QubicBridgeTest is Test {
         assertEq(token.balanceOf(address(bridge)), 0);
         assertEq(token.balanceOf(treasury), fee);
 
-        QubicBridge.PullOrder memory order = bridge.getOrder(orderId);
+        IQubicBridge.PullOrder memory order = bridge.getOrder(orderId);
         assertTrue(order.done);
     }
 
@@ -317,12 +318,12 @@ contract QubicBridgeTest is Test {
         bridge.confirmOrder(orderId, OPERATOR_FEE_PCT);
 
         // Try to confirm again
-        vm.expectRevert(QubicBridge.AlreadyConfirmed.selector);
+        vm.expectRevert(IQubicBridge.AlreadyConfirmed.selector);
         vm.prank(operator);
         bridge.confirmOrder(orderId, OPERATOR_FEE_PCT);
 
         // Try to revert confirmed order
-        vm.expectRevert(QubicBridge.AlreadyConfirmed.selector);
+        vm.expectRevert(IQubicBridge.AlreadyConfirmed.selector);
         vm.prank(operator);
         bridge.revertOrder(orderId, OPERATOR_FEE_PCT);
     }
@@ -332,7 +333,7 @@ contract QubicBridgeTest is Test {
     function test_OperatorRevertsOrder() public {
         uint256 amount = 100_000;
         uint256 initialBalance = token.balanceOf(alice);
-        uint256 fee = qubicBridgeHelper._getTransferFee(
+        uint256 fee = qubicBridgeHelper.getTransferFeePublic(
             amount,
             OPERATOR_FEE_PCT
         );
@@ -340,7 +341,7 @@ contract QubicBridgeTest is Test {
 
         vm.startPrank(operator);
         vm.expectEmit(address(bridge));
-        emit QubicBridge.OrderReverted(
+        emit IQubicBridge.OrderReverted(
             orderId,
             alice,
             QUBIC_DESTINATION,
@@ -359,7 +360,7 @@ contract QubicBridgeTest is Test {
         vm.assume(amount >= 1000 && amount < INITIAL_BALANCE); // minTransferAmount = 1000
         uint256 orderId = 1;
         uint256 initialBalance = token.balanceOf(bob);
-        uint256 fee = qubicBridgeHelper._getTransferFee(
+        uint256 fee = qubicBridgeHelper.getTransferFeePublic(
             amount,
             OPERATOR_FEE_PCT
         );
@@ -367,7 +368,7 @@ contract QubicBridgeTest is Test {
 
         vm.startPrank(operator);
         vm.expectEmit(address(bridge));
-        emit QubicBridge.OrderExecuted(orderId, QUBIC_DESTINATION, bob, amount);
+        emit IQubicBridge.OrderExecuted(orderId, QUBIC_DESTINATION, bob, amount);
         bridge.executeOrder(
             orderId,
             QUBIC_DESTINATION,
@@ -397,7 +398,7 @@ contract QubicBridgeTest is Test {
 
         // Test invalid amount (below minimum)
         vm.startPrank(operator);
-        vm.expectRevert(QubicBridge.AmountBelowMinimum.selector);
+        vm.expectRevert(IQubicBridge.AmountBelowMinimum.selector);
         bridge.executeOrder(
             orderId,
             QUBIC_DESTINATION,
@@ -407,7 +408,7 @@ contract QubicBridgeTest is Test {
         );
 
         // Test invalid destination
-        vm.expectRevert(QubicBridge.InvalidDestinationAccount.selector);
+        vm.expectRevert(IQubicBridge.InvalidDestinationAccount.selector);
         bridge.executeOrder(
             orderId,
             QUBIC_DESTINATION,
@@ -422,8 +423,11 @@ contract QubicBridgeTest is Test {
     function test_EmergencyTokenWithdraw() public {
         uint256 amount = 100_000;
 
-        vm.startPrank(alice);
-        token.transfer(address(bridge), amount);
+        // Deploy a separate token (not the bridge token) to test emergency withdrawal
+        vm.startPrank(admin);
+        QubicToken otherToken = new QubicToken();
+        otherToken.addOperator(admin);
+        otherToken.mint(address(bridge), amount);
         vm.stopPrank();
 
         vm.startPrank(admin);
@@ -438,10 +442,10 @@ contract QubicBridgeTest is Test {
         bridge.approveProposal(pauseProposalId);
         bridge.executeProposal(pauseProposalId);
 
-        // Create and execute withdraw proposal
+        // Create and execute withdraw proposal for the other token
         bytes memory data = abi.encodeWithSelector(
             bridge.emergencyTokenWithdraw.selector,
-            address(token),
+            address(otherToken),
             admin,
             amount
         );
@@ -453,7 +457,44 @@ contract QubicBridgeTest is Test {
         bridge.executeProposal(proposalId);
         vm.stopPrank();
 
-        assertEq(token.balanceOf(admin), amount);
+        assertEq(otherToken.balanceOf(admin), amount);
+    }
+
+    function test_EmergencyTokenWithdrawRevertsBridgeToken() public {
+        uint256 amount = 100_000;
+
+        vm.startPrank(alice);
+        token.transfer(address(bridge), amount);
+        vm.stopPrank();
+
+        vm.startPrank(admin);
+        // First pause the bridge
+        bytes memory pauseData = abi.encodeWithSelector(
+            bridge.emergencyPause.selector
+        );
+        bytes32 pauseProposalId = bridge.proposeAction(
+            pauseData,
+            bridge.DEFAULT_ADMIN_ROLE()
+        );
+        bridge.approveProposal(pauseProposalId);
+        bridge.executeProposal(pauseProposalId);
+
+        // Try to withdraw the bridge token - should fail
+        bytes memory data = abi.encodeWithSelector(
+            bridge.emergencyTokenWithdraw.selector,
+            address(token),
+            admin,
+            amount
+        );
+        bytes32 proposalId = bridge.proposeAction(
+            data,
+            bridge.DEFAULT_ADMIN_ROLE()
+        );
+        bridge.approveProposal(proposalId);
+
+        vm.expectRevert("Proposal execution failed");
+        bridge.executeProposal(proposalId);
+        vm.stopPrank();
     }
 
     function test_EmergencyEtherWithdraw() public {
@@ -493,7 +534,7 @@ contract QubicBridgeTest is Test {
     function test_getTransferFee(uint256 amount, uint256 feePct) public view {
         vm.assume(feePct <= 100);
         vm.assume(amount < 10e18);
-        uint256 fee = qubicBridgeHelper._getTransferFee(amount, feePct);
+        uint256 fee = qubicBridgeHelper.getTransferFeePublic(amount, feePct);
         assertLe(fee, amount);
     }
 }
@@ -521,10 +562,10 @@ contract QubicBridgeHelper is QubicBridge {
         )
     {}
 
-    function _getTransferFee(
+    function getTransferFeePublic(
         uint256 amount,
         uint256 feePct
     ) public view returns (uint256) {
-        return getTransferFee(amount, feePct);
+        return _getTransferFee(amount, feePct);
     }
 }

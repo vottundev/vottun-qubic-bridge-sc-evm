@@ -5,8 +5,10 @@ import "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "./QubicToken.sol";
+import "./IQubicBridge.sol";
 
 contract QubicBridge is
+    IQubicBridge,
     AccessControlEnumerable,
     ReentrancyGuardTransient,
     Pausable
@@ -17,14 +19,6 @@ contract QubicBridge is
     uint256 public baseFee;
     uint256 public minTransferAmount;
     uint256 public maxTransferAmount;
-
-    /// @notice Outgoing orders generated from this contract
-    struct PullOrder {
-        address originAccount;
-        string destinationAccount;
-        uint248 amount;
-        bool done;
-    }
 
     mapping(uint256 => PullOrder) pullOrders;
     uint256 lastPullOrderId;
@@ -58,9 +52,13 @@ contract QubicBridge is
     bytes32[] public pendingProposals;
 
     /**
-     * @notice Constants
+     * @notice Immutables
      */
     address public immutable token;
+
+    /**
+     * @notice Configuration
+     */
     address public feeRecipient; // Wallet that receives all bridge fees
     bytes32 constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
     bytes32 constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
@@ -78,115 +76,6 @@ contract QubicBridge is
      * @notice Tracks which selectors are registered to distinguish from default bytes32(0)
      */
     mapping(bytes4 => bool) public isFunctionRegistered;
-
-    /**
-     * @notice Events
-     */
-    event AdminAdded(address indexed admin);
-    event AdminRemoved(address indexed admin);
-    event ManagerAdded(address indexed manager);
-    event ManagerRemoved(address indexed manager);
-    event OperatorAdded(address indexed operator);
-    event OperatorRemoved(address indexed operator);
-    event BaseFeeUpdated(uint256 baseFee);
-    event FeeRecipientUpdated(
-        address indexed oldRecipient,
-        address indexed newRecipient
-    );
-    event MinTransferAmountUpdated(uint256 minAmount);
-    event MaxTransferAmountUpdated(uint256 maxAmount);
-    event OrderCreated(
-        uint256 indexed orderId,
-        address indexed originAccount,
-        string indexed destinationAccount,
-        uint256 amount
-    );
-    event OrderConfirmed(
-        uint256 indexed orderId,
-        address indexed originAccount,
-        string indexed destinationAccount,
-        uint256 amount
-    );
-    event OrderReverted(
-        uint256 indexed orderId,
-        address indexed originAccount,
-        string indexed destinationAccount,
-        uint256 amount
-    );
-    event OrderExecuted(
-        uint256 indexed originOrderId,
-        string indexed originAccount,
-        address indexed destinationAccount,
-        uint256 amount
-    );
-    event EmergencyTokenWithdrawn(
-        address tokenAddress,
-        address to,
-        uint256 amount
-    );
-    event EmergencyEtherWithdrawn(address to, uint256 amount);
-
-    /**
-     * @notice Multisig Events
-     */
-    event ProposalCreated(
-        bytes32 indexed proposalId,
-        address indexed proposer,
-        bytes data,
-        bytes32 roleRequired
-    );
-    event ProposalApproved(
-        bytes32 indexed proposalId,
-        address indexed approver,
-        uint256 approvalCount
-    );
-    event ProposalExecuted(
-        bytes32 indexed proposalId,
-        address indexed executor
-    );
-    event ProposalCancelled(
-        bytes32 indexed proposalId,
-        address indexed canceller
-    );
-    event AdminThresholdUpdated(uint256 newThreshold);
-    event ManagerThresholdUpdated(uint256 newThreshold);
-
-    /**
-     * @notice Custom Errors
-     */
-    error InvalidAddress();
-    error InvalidBaseFee();
-    error InvalidDestinationAccount();
-    error InvalidAmount();
-    error AmountBelowMinimum();
-    error AmountExceedsMaximum();
-    error InvalidFeePct();
-    error InvalidOrderId();
-    error InsufficientApproval();
-    error AlreadyConfirmed();
-    error AlreadyExecuted();
-    error TokenTransferFailed();
-    error EtherTransferFailed();
-
-    /**
-     * @notice Multisig Errors
-     */
-    error ProposalNotFound();
-    error ProposalAlreadyExecuted();
-    error ProposalAlreadyApproved();
-    error InsufficientApprovals();
-    error InvalidThreshold();
-    error UnauthorizedRole();
-    error OnlyProposal();
-    error MaxAdminsReached();
-    error MaxManagersReached();
-    error ThresholdExceedsCount();
-    error AlreadyAdmin();
-    error AlreadyManager();
-    error AlreadyOperator();
-    error MustBePaused();
-    error ProposalAlreadyExists();
-    error FeeExceedsAmount();
 
     /**
      * @notice Internal helper to register function selector to role mapping
@@ -272,6 +161,9 @@ contract QubicBridge is
         if (_feeRecipient == address(0)) {
             revert InvalidAddress();
         }
+        if (_token == address(0)) {
+            revert InvalidAddress();
+        }
 
         token = _token;
         baseFee = _baseFee;
@@ -306,7 +198,7 @@ contract QubicBridge is
             revert AlreadyAdmin();
         }
 
-        // Count current admins (excluding contract itself)
+        // Count current admins (excluding contract itself for defensive safety)
         uint256 adminCount = 0;
         uint256 memberCount = getRoleMemberCount(DEFAULT_ADMIN_ROLE);
         for (uint256 i = 0; i < memberCount; i++) {
@@ -334,8 +226,11 @@ contract QubicBridge is
         if (admin == address(this)) {
             revert InvalidAddress();
         }
+        if (!hasRole(DEFAULT_ADMIN_ROLE, admin)) {
+            revert InvalidAddress();
+        }
 
-        // Count current admins (excluding contract itself)
+        // Count current admins (excluding contract itself for defensive safety)
         uint256 adminCount = 0;
         uint256 memberCount = getRoleMemberCount(DEFAULT_ADMIN_ROLE);
         for (uint256 i = 0; i < memberCount; i++) {
@@ -370,7 +265,7 @@ contract QubicBridge is
             revert AlreadyManager();
         }
 
-        // Count current managers (excluding contract itself)
+        // Count current managers (excluding contract itself for defensive safety)
         uint256 managerCount = 0;
         uint256 memberCount = getRoleMemberCount(MANAGER_ROLE);
         for (uint256 i = 0; i < memberCount; i++) {
@@ -397,7 +292,14 @@ contract QubicBridge is
     function removeManager(
         address manager
     ) external onlyProposal returns (bool) {
-        // Count current managers (excluding contract itself)
+        if (manager == address(this)) {
+            revert InvalidAddress();
+        }
+        if (!hasRole(MANAGER_ROLE, manager)) {
+            revert InvalidAddress();
+        }
+
+        // Count current managers (excluding contract itself for defensive safety)
         uint256 managerCount = 0;
         uint256 memberCount = getRoleMemberCount(MANAGER_ROLE);
         for (uint256 i = 0; i < memberCount; i++) {
@@ -444,6 +346,9 @@ contract QubicBridge is
     function removeOperator(
         address operator
     ) external onlyProposal returns (bool) {
+        if (!hasRole(OPERATOR_ROLE, operator)) {
+            revert InvalidAddress();
+        }
         bool success = _revokeRole(OPERATOR_ROLE, operator);
         emit OperatorRemoved(operator);
         return success;
@@ -565,7 +470,7 @@ contract QubicBridge is
             revert InvalidFeePct();
         }
 
-        uint256 fee = getTransferFee(amount, feePct);
+        uint256 fee = _getTransferFee(amount, feePct);
         if (fee >= amount) {
             revert FeeExceedsAmount();
         }
@@ -615,7 +520,7 @@ contract QubicBridge is
         // Delete the order
         delete pullOrders[orderId];
 
-        uint256 fee = getTransferFee(amount, feePct);
+        uint256 fee = _getTransferFee(amount, feePct);
         if (fee >= amount) {
             revert FeeExceedsAmount();
         }
@@ -669,7 +574,7 @@ contract QubicBridge is
             revert AmountExceedsMaximum();
         }
 
-        uint256 fee = getTransferFee(amount, feePct);
+        uint256 fee = _getTransferFee(amount, feePct);
         if (fee >= amount) {
             revert FeeExceedsAmount();
         }
@@ -740,6 +645,9 @@ contract QubicBridge is
         if (recipient == address(0)) {
             revert InvalidAddress();
         }
+        if (tokenAddress == token) {
+            revert CannotWithdrawBridgeToken();
+        }
 
         (bool success, ) = tokenAddress.call(
             abi.encodeWithSignature(
@@ -808,17 +716,17 @@ contract QubicBridge is
 
         // Extract function selector from data
         if (data.length < 4) {
-            revert InvalidAddress(); // Reusing error for invalid data
+            revert InvalidDataLength();
         }
         bytes4 selector = bytes4(data[:4]);
 
         // Verify the function is registered and matches the required role
         if (!isFunctionRegistered[selector]) {
-            revert UnauthorizedRole(); // Function not registered
+            revert FunctionNotRegistered();
         }
         bytes32 expectedRole = functionRoles[selector];
         if (expectedRole != roleRequired) {
-            revert UnauthorizedRole(); // Role mismatch
+            revert RoleMismatch();
         }
 
         // Generate proposal ID
@@ -924,7 +832,7 @@ contract QubicBridge is
     }
 
     /**
-     * @notice Cancels a pending proposal (only proposer can cancel)
+     * @notice Cancels a pending proposal (proposer or admin can cancel)
      * @param proposalId The ID of the proposal to cancel
      */
     function cancelProposal(bytes32 proposalId) external {
@@ -966,7 +874,7 @@ contract QubicBridge is
             revert InvalidThreshold();
         }
 
-        // Count current admins (excluding contract itself)
+        // Count current admins (excluding contract itself for defensive safety)
         uint256 adminCount = 0;
         uint256 memberCount = getRoleMemberCount(DEFAULT_ADMIN_ROLE);
         for (uint256 i = 0; i < memberCount; i++) {
@@ -993,7 +901,7 @@ contract QubicBridge is
             revert InvalidThreshold();
         }
 
-        // Count current managers (excluding contract itself)
+        // Count current managers (excluding contract itself for defensive safety)
         uint256 managerCount = 0;
         uint256 memberCount = getRoleMemberCount(MANAGER_ROLE);
         for (uint256 i = 0; i < memberCount; i++) {
@@ -1034,7 +942,7 @@ contract QubicBridge is
      * @param feePct Percentage of the baseFee to apply (no decimal places)
      * @return The calculated fee amount
      */
-    function getTransferFee(
+    function _getTransferFee(
         uint256 amount,
         uint256 feePct
     ) internal view returns (uint256) {
@@ -1060,7 +968,7 @@ contract QubicBridge is
     }
 
     /**
-     * @notice Gets all admins (excluding the contract itself)
+     * @notice Gets all admins
      * @return Array of admin addresses
      */
     function getAdmins() external view returns (address[] memory) {
@@ -1155,10 +1063,9 @@ contract QubicBridge is
             return false;
         }
 
-        // Check that address is not all zeros or all same character
+        // Check that address is not all same character (covers all-zeros case)
         bytes1 firstChar = baddr[0];
         bool allSame = true;
-        bool allZeros = true;
 
         // Validate characters and check for patterns
         for (uint256 i = 0; i < QUBIC_ACCOUNT_LENGTH; i++) {
@@ -1176,14 +1083,10 @@ contract QubicBridge is
             if (char != firstChar) {
                 allSame = false;
             }
-            if (char != 0x30) {
-                // '0'
-                allZeros = false;
-            }
         }
 
         // Reject obviously invalid patterns
-        if (allSame || allZeros) {
+        if (allSame) {
             return false;
         }
 
